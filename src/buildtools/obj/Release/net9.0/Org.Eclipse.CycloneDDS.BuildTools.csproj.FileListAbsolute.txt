@@ -1,0 +1,12 @@
+/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/bin/Release/net9.0/Org.Eclipse.CycloneDDS.BuildTools.deps.json
+/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/bin/Release/net9.0/Org.Eclipse.CycloneDDS.BuildTools.dll
+/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/bin/Release/net9.0/Org.Eclipse.CycloneDDS.BuildTools.pdb
+/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/obj/Release/net9.0/Org.Eclipse.CycloneDDS.BuildTools.csproj.AssemblyReference.cache
+/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/obj/Release/net9.0/Org.Eclipse.CycloneDDS.BuildTools.GeneratedMSBuildEditorConfig.editorconfig
+/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/obj/Release/net9.0/Org.Eclipse.CycloneDDS.BuildTools.AssemblyInfoInputs.cache
+/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/obj/Release/net9.0/Org.Eclipse.CycloneDDS.BuildTools.AssemblyInfo.cs
+/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/obj/Release/net9.0/Org.Eclipse.CycloneDDS.BuildTools.csproj.CoreCompileInputs.cache
+/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/obj/Release/net9.0/Org.Eclipse.CycloneDDS.BuildTools.dll
+/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/obj/Release/net9.0/refint/Org.Eclipse.CycloneDDS.BuildTools.dll
+/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/obj/Release/net9.0/Org.Eclipse.CycloneDDS.BuildTools.pdb
+/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/obj/Release/net9.0/ref/Org.Eclipse.CycloneDDS.BuildTools.dll

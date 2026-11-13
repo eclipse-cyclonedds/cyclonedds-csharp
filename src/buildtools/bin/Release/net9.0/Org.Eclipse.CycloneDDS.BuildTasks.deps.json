@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v9.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v9.0": {
+      "Org.Eclipse.CycloneDDS.BuildTasks/11.0.1": {
+        "runtime": {
+          "Org.Eclipse.CycloneDDS.BuildTasks.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Org.Eclipse.CycloneDDS.BuildTasks/11.0.1": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

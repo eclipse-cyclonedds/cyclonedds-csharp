@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>Org.Eclipse.CycloneDDS</id>
+    <version>0.1.0-alpha.1</version>
+    <title>Eclipse Cyclone DDS for C#</title>
+    <authors>Cyclone DDS C# contributors</authors>
+    <license type="expression">EPL-2.0 OR BSD-3-Clause</license>
+    <licenseUrl>https://licenses.nuget.org/EPL-2.0%20OR%20BSD-3-Clause</licenseUrl>
+    <readme>README.md</readme>
+    <description>Managed DDS entities and generated type support for Eclipse Cyclone DDS.</description>
+    <tags>DDS CycloneDDS CSharp publish-subscribe RTPS</tags>
+    <repository type="git" />
+    <dependencies>
+      <group targetFramework="net9.0" />
+    </dependencies>
+  </metadata>
+  <files>
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/src/ddscsharp/bin/Release/net9.0/CycloneDDS.dll" target="lib/net9.0/CycloneDDS.dll" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/README.md" target="/README.md" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/lib/libcycloneddscsharp.dylib" target="runtimes/osx-arm64/native/libcycloneddscsharp.dylib" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/lib/libddsc.11.dylib" target="runtimes/osx-arm64/native/libddsc.11.dylib" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/lib/libddsc.dylib" target="runtimes/osx-arm64/native/libddsc.dylib" />
+  </files>
+</package>

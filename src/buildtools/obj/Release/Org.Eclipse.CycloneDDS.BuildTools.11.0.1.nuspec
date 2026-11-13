@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+  <metadata>
+    <id>Org.Eclipse.CycloneDDS.BuildTools</id>
+    <version>11.0.1</version>
+    <authors>Cyclone DDS C# contributors</authors>
+    <developmentDependency>true</developmentDependency>
+    <license type="expression">EPL-2.0 OR BSD-3-Clause</license>
+    <licenseUrl>https://licenses.nuget.org/EPL-2.0%20OR%20BSD-3-Clause</licenseUrl>
+    <readme>README.md</readme>
+    <description>IDL compiler and automatic C# generation for Eclipse Cyclone DDS. No CMake or native compiler is required by consumers.</description>
+    <repository type="git" />
+  </metadata>
+  <files>
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/bin/Release/net9.0/Org.Eclipse.CycloneDDS.BuildTools.dll" target="tools/net9.0/Org.Eclipse.CycloneDDS.BuildTools.dll" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/build/Org.Eclipse.CycloneDDS.BuildTools.props" target="build/Org.Eclipse.CycloneDDS.BuildTools.props" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/build/Org.Eclipse.CycloneDDS.BuildTools.targets" target="build/Org.Eclipse.CycloneDDS.BuildTools.targets" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/src/buildtools/README.md" target="/README.md" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/NOTICE.md" target="/NOTICE.md" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/LICENSE" target="/LICENSE" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/buildtools-package/tools/osx-arm64/native/idlc" target="tools/osx-arm64/native/idlc" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/buildtools-package/tools/osx-arm64/native/libcycloneddsidl.11.0.1.dylib" target="tools/osx-arm64/native/libcycloneddsidl.11.0.1.dylib" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/buildtools-package/tools/osx-arm64/native/libcycloneddsidl.11.dylib" target="tools/osx-arm64/native/libcycloneddsidl.11.dylib" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/buildtools-package/tools/osx-arm64/native/libcycloneddsidl.dylib" target="tools/osx-arm64/native/libcycloneddsidl.dylib" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/buildtools-package/tools/osx-arm64/native/libcycloneddsidlc.11.0.1.dylib" target="tools/osx-arm64/native/libcycloneddsidlc.11.0.1.dylib" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/buildtools-package/tools/osx-arm64/native/libcycloneddsidlc.11.dylib" target="tools/osx-arm64/native/libcycloneddsidlc.11.dylib" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/buildtools-package/tools/osx-arm64/native/libcycloneddsidlc.dylib" target="tools/osx-arm64/native/libcycloneddsidlc.dylib" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/buildtools-package/tools/osx-arm64/native/libcycloneddsidlcsharp.dylib" target="tools/osx-arm64/native/libcycloneddsidlcsharp.dylib" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/buildtools-package/tools/osx-arm64/native/libddsc.11.0.1.dylib" target="tools/osx-arm64/native/libddsc.11.0.1.dylib" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/buildtools-package/tools/osx-arm64/native/libddsc.11.dylib" target="tools/osx-arm64/native/libddsc.11.dylib" />
+    <file src="/Users/sventrittler/workspace/trittsv/cyc-csharp/build/buildtools-package/tools/osx-arm64/native/libddsc.dylib" target="tools/osx-arm64/native/libddsc.dylib" />
+  </files>
+</package>

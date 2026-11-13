@@ -1,0 +1,74 @@
+{
+  "format": 1,
+  "restore": {
+    "/Users/sventrittler/workspace/trittsv/cyc-csharp/nuget-smoke/NuGetSmoke.csproj": {}
+  },
+  "projects": {
+    "/Users/sventrittler/workspace/trittsv/cyc-csharp/nuget-smoke/NuGetSmoke.csproj": {
+      "version": "11.0.1",
+      "restore": {
+        "projectUniqueName": "/Users/sventrittler/workspace/trittsv/cyc-csharp/nuget-smoke/NuGetSmoke.csproj",
+        "projectName": "NuGetSmoke",
+        "projectPath": "/Users/sventrittler/workspace/trittsv/cyc-csharp/nuget-smoke/NuGetSmoke.csproj",
+        "packagesPath": "/Users/sventrittler/.nuget/packages/",
+        "outputPath": "/Users/sventrittler/workspace/trittsv/cyc-csharp/nuget-smoke/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/Users/sventrittler/workspace/trittsv/cyc-csharp/nuget-smoke/NuGet.config"
+        ],
+        "originalTargetFrameworks": [
+          "net9.0"
+        ],
+        "sources": {
+          "/Users/sventrittler/workspace/trittsv/cyc-csharp": {}
+        },
+        "frameworks": {
+          "net9.0": {
+            "targetAlias": "net9.0",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "allWarningsAsErrors": true,
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "9.0.300"
+      },
+      "frameworks": {
+        "net9.0": {
+          "targetAlias": "net9.0",
+          "dependencies": {
+            "Org.Eclipse.CycloneDDS": {
+              "target": "Package",
+              "version": "[11.0.1, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/9.0.305/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}
