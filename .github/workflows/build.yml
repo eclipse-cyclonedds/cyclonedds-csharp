@@ -11,9 +11,7 @@ name: Build, test and package
 
 on:
   push:
-    branches:
-      - master
-      - main # Temporary: also build the current development branch.
+    branches: "*"
   pull_request:
   workflow_dispatch:
 
