@@ -1,0 +1,29 @@
+# CMake builds, native dependencies and packaged artifacts
+/build/
+/build-*/
+/cmake-build-*/
+/artifacts/
+CMakeFiles/
+CMakeCache.txt
+CMakeUserPresets.json
+
+# .NET build and test output
+[Bb]in/
+[Oo]bj/
+TestResults/
+*.nupkg
+*.snupkg
+
+# Local IDE settings
+.vs/
+*.user
+*.suo
+*.sln.docstates
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# macOS metadata
+.DS_Store
+._*
