@@ -1,4 +1,4 @@
-// Copyright(c) 2026 Cyclone DDS C# contributors
+// Copyright(c) 2026 Sven Trittler
 //
 // This program and the accompanying materials are made available under the
 // terms of the Eclipse Public License v. 2.0 which is available at
@@ -24,7 +24,7 @@
 #endif
 
 static const char header[] =
-  "// Copyright(c) 2026 Cyclone DDS C# contributors\n"
+  "// Copyright(c) 2026 Sven Trittler\n"
   "//\n"
   "// This program and the accompanying materials are made available under the\n"
   "// terms of the Eclipse Public License v. 2.0 which is available at\n"

@@ -15,11 +15,11 @@ it is not a claim that those tests have been ported.
 The examples port all three example directories from that same C++ revision.
 Their IDL content is copied unchanged (HelloWorldData.idl is locally named
 HelloWorld.idl). Adapted example sources retain upstream copyright attribution
-and add the C# contributors' attribution. See `examples/README.md` for the exact
+and add Sven Trittler's attribution. See `examples/README.md` for the exact
 roles, wire compatibility and deliberate CLI/statistics behavior choices.
 
 New implementation files use the same license-header wording and SPDX expression,
-with attribution to the Cyclone DDS C# contributors. This repository is an initial
+with attribution to Sven Trittler. This repository is an initial
 implementation and does not assert Eclipse project membership, endorsement, or
 OMG conformance certification.
 
