@@ -23,6 +23,7 @@ public abstract class CdrCodec<T>(CdrExtensibility extensibility = CdrExtensibil
 {
     public CdrExtensibility Extensibility { get; } = extensibility;
     internal virtual bool Primitive => false;
+    internal virtual bool MayContainCycles => true;
     public abstract void Write(CdrWriter writer, T value);
     public abstract T Read(CdrReader reader);
     internal virtual T ReadInto(CdrReader reader, T value) => Read(reader);
@@ -32,7 +33,8 @@ public abstract class CdrCodec<T>(CdrExtensibility extensibility = CdrExtensibil
 public sealed class CdrWriter : IDisposable
 {
     private byte[] buffer;
-    private readonly HashSet<object> path = new(ReferenceEqualityComparer.Instance);
+    private HashSet<object>? path;
+    private int depth;
     internal int Position = 4, Origin = 4;
     public bool Xcdr2 { get; }
     internal byte[] Buffer => buffer;
@@ -65,15 +67,35 @@ public sealed class CdrWriter : IDisposable
         int padding = (-(Position - Origin)) & (Math.Min(size, Xcdr2 ? 4 : 8) - 1);
         Ensure(padding); buffer.AsSpan(Position, padding).Clear(); Position += padding;
     }
+    /// <summary>Reserves an aligned, zero-initialized block for generated scalar fields.
+    /// The span is valid only until the next stream operation or disposal.</summary>
+    public Span<byte> WriteBlock(int size, int alignment) => ReserveBlock(size, alignment, clear: true);
+    private Span<byte> ReserveBlock(int size, int alignment, bool clear)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(size);
+        CdrPrimitives.ValidateAlignment(alignment);
+        int padding = size == 0 ? 0 : (-(Position - Origin)) & (Math.Min(alignment, Xcdr2 ? 4 : 8) - 1);
+        Ensure(checked(padding + size));
+        buffer.AsSpan(Position, padding).Clear(); Position += padding;
+        var result = buffer.AsSpan(Position, size); Position += size;
+        if (clear) result.Clear();
+        return result;
+    }
     public void Scalar<T>(T value) where T : unmanaged
     {
         int size = Unsafe.SizeOf<T>();
-        int padding = (-(Position - Origin)) & (Math.Min(size, Xcdr2 ? 4 : 8) - 1);
-        Ensure(checked(padding + size));
-        buffer.AsSpan(Position, padding).Clear(); Position += padding;
-        MemoryMarshal.Write(buffer.AsSpan(Position, size), in value);
-        if (!BitConverter.IsLittleEndian) buffer.AsSpan(Position, size).Reverse();
-        Position += size;
+        var target = ReserveBlock(size, size, clear: false);
+        MemoryMarshal.Write(target, in value);
+        if (!BitConverter.IsLittleEndian) target.Reverse();
+    }
+    /// <summary>Writes numeric IDL primitives with one alignment and capacity check.</summary>
+    public void WritePrimitives<T>(ReadOnlySpan<T> values) where T : unmanaged
+    {
+        int size = CdrPrimitives<T>.Size;
+        if (values.IsEmpty) { ObjectDisposedException.ThrowIf(buffer.Length == 0, this); return; }
+        var target = ReserveBlock(checked(values.Length * size), size, clear: false);
+        MemoryMarshal.AsBytes(values).CopyTo(target);
+        if (!BitConverter.IsLittleEndian && size != 1) CdrPrimitives.ReverseElements(target, size);
     }
     public void Boolean(bool value) => Scalar(value ? (byte)1 : (byte)0);
     public void Char(char value)
@@ -83,18 +105,24 @@ public sealed class CdrWriter : IDisposable
     }
     /// <summary>Begins a generated aggregate while preserving cycle checks and framing.</summary>
     public StructureScope BeginStructure(object value, CdrExtensibility extensibility)
+        => BeginStructure(value, extensibility, trackCycles: true);
+    /// <summary>Generated code may omit reference tracking only after proving its IDL type graph acyclic.
+    /// Null and nesting checks apply in both modes.</summary>
+    public StructureScope BeginStructure(object value, CdrExtensibility extensibility, bool trackCycles)
     {
-        Enter(value);
-        try { return new StructureScope(this, value, Xcdr2 && extensibility != CdrExtensibility.Final ? BeginDelimited() : -1); }
-        catch { Leave(value); throw; }
+        Enter(value, trackCycles);
+        try { return new StructureScope(this, value, Xcdr2 && extensibility != CdrExtensibility.Final ? BeginDelimited() : -1, trackCycles); }
+        catch { Leave(value, trackCycles); throw; }
     }
     public readonly struct StructureScope : IDisposable
     {
         private readonly CdrWriter writer;
         private readonly object value;
         private readonly int delimiter;
-        internal StructureScope(CdrWriter writer, object value, int delimiter) { this.writer = writer; this.value = value; this.delimiter = delimiter; }
-        public void Dispose() { try { writer.EndDelimited(delimiter); } finally { writer.Leave(value); } }
+        private readonly bool trackCycles;
+        internal StructureScope(CdrWriter writer, object value, int delimiter, bool trackCycles)
+        { this.writer = writer; this.value = value; this.delimiter = delimiter; this.trackCycles = trackCycles; }
+        public void Dispose() { try { writer.EndDelimited(delimiter); } finally { writer.Leave(value, trackCycles); } }
     }
     internal void Patch(int position, uint value) => BinaryPrimitives.WriteUInt32LittleEndian(buffer.AsSpan(position, 4), value);
     internal int BeginDelimited() { Scalar(0u); return Position; }
@@ -109,12 +137,19 @@ public sealed class CdrWriter : IDisposable
         Scalar(checked((uint)size + 1)); Ensure(checked(size + 1));
         Utf8.GetBytes(value.AsSpan(), buffer.AsSpan(Position, size)); Position += size; buffer[Position++] = 0;
     }
-    internal void Enter(object value)
+    internal void Enter(object value, bool trackCycles = true)
     {
         ArgumentNullException.ThrowIfNull(value);
-        if (path.Count >= 256 || !path.Add(value)) throw new ArgumentException("DDS samples must be acyclic and at most 256 objects deep.");
+        if (depth >= 256) throw new ArgumentException("DDS samples must be at most 256 objects deep.");
+        if (trackCycles && !(path ??= new(ReferenceEqualityComparer.Instance)).Add(value))
+            throw new ArgumentException("DDS samples must be acyclic.");
+        depth++;
     }
-    internal void Leave(object value) => path.Remove(value);
+    internal void Leave(object value, bool trackCycles = true)
+    {
+        if (trackCycles) path!.Remove(value);
+        depth--;
+    }
     public byte[] ToArray() { ObjectDisposedException.ThrowIf(buffer.Length == 0, this); return buffer.AsSpan(0, Position).ToArray(); }
     public void Dispose() { var old = buffer; buffer = []; if (old.Length != 0) ArrayPool<byte>.Shared.Return(old); }
 }
@@ -147,23 +182,43 @@ public sealed class CdrReader
     internal void Finish() { if (Position != Limit) throw new InvalidDataException("Trailing CDR data."); }
     internal void Require(int size) { if (size < 0 || size > Limit - Position) throw new InvalidDataException("Truncated or invalid CDR data."); }
     internal void Align(int size) { int n = (-(Position - Origin)) & (Math.Min(size, Xcdr2 ? 4 : 8) - 1); Require(n); Position += n; }
+    public bool IsLittleEndian => littleEndian;
+    /// <summary>Reads an aligned block after validating its complete extent.</summary>
+    public ReadOnlySpan<byte> ReadBlock(int size, int alignment)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(size);
+        CdrPrimitives.ValidateAlignment(alignment);
+        int padding = size == 0 ? 0 : (-(Position - Origin)) & (Math.Min(alignment, Xcdr2 ? 4 : 8) - 1);
+        Require(checked(padding + size)); Position += padding;
+        var result = buffer.AsSpan(Position, size); Position += size;
+        return result;
+    }
     public T Scalar<T>() where T : unmanaged
     {
-        int size = Unsafe.SizeOf<T>(); Align(size); Require(size);
-        T result;
-        if (littleEndian == BitConverter.IsLittleEndian) result = MemoryMarshal.Read<T>(buffer.AsSpan(Position, size));
-        else { Span<byte> bytes = stackalloc byte[size]; buffer.AsSpan(Position, size).CopyTo(bytes); bytes.Reverse(); result = MemoryMarshal.Read<T>(bytes); }
-        Position += size; return result;
+        int size = Unsafe.SizeOf<T>();
+        var source = ReadBlock(size, size);
+        if (littleEndian == BitConverter.IsLittleEndian) return MemoryMarshal.Read<T>(source);
+        Span<byte> bytes = stackalloc byte[size]; source.CopyTo(bytes); bytes.Reverse(); return MemoryMarshal.Read<T>(bytes);
+    }
+    /// <summary>Reads numeric IDL primitives without exposing the input buffer to the result.</summary>
+    public void ReadPrimitives<T>(Span<T> destination) where T : unmanaged
+    {
+        int size = CdrPrimitives<T>.Size;
+        if (destination.IsEmpty) return;
+        var source = ReadBlock(checked(destination.Length * size), size);
+        var target = MemoryMarshal.AsBytes(destination); source.CopyTo(target);
+        if (littleEndian != BitConverter.IsLittleEndian && size != 1) CdrPrimitives.ReverseElements(target, size);
     }
     public bool Boolean() => Scalar<byte>() switch { 0 => false, 1 => true, _ => throw new InvalidDataException("Invalid boolean.") };
     public char Char() => (char)Scalar<byte>();
     /// <summary>Bounds and nesting scope for a generated aggregate.</summary>
     public Scope BeginStructure(CdrExtensibility extensibility) => Enter(Xcdr2 && extensibility != CdrExtensibility.Final);
     internal uint PeekUInt32() { int saved = Position; uint n = Scalar<uint>(); Position = saved; return n; }
-    internal int Count(int bound)
+    internal int Count(int bound, int elementSize = 1)
     {
         uint count = Scalar<uint>();
-        if (count > int.MaxValue || (bound > 0 && count > bound) || count > Limit - Position) throw new InvalidDataException("Invalid sequence length.");
+        int padding = count == 0 ? 0 : (-(Position - Origin)) & (Math.Min(elementSize, Xcdr2 ? 4 : 8) - 1);
+        if (count > int.MaxValue || (bound > 0 && count > bound) || (long)count * elementSize + padding > Limit - Position) throw new InvalidDataException("Invalid sequence length.");
         return (int)count;
     }
     public string String(int bound = 0)
@@ -194,18 +249,21 @@ public sealed class CdrReader
 
 internal sealed class CdrBooleanCodec : CdrCodec<bool>
 {
+    internal override bool MayContainCycles => false;
     internal override bool Primitive => true;
     public override void Write(CdrWriter writer, bool value) => writer.Scalar(value ? (byte)1 : (byte)0);
     public override bool Read(CdrReader reader) => reader.Scalar<byte>() switch { 0 => false, 1 => true, _ => throw new InvalidDataException("Invalid boolean.") };
 }
 internal sealed class CdrCharCodec : CdrCodec<char>
 {
+    internal override bool MayContainCycles => false;
     internal override bool Primitive => true;
     public override void Write(CdrWriter writer, char value) { if (value > 255) throw new ArgumentOutOfRangeException(nameof(value)); writer.Scalar((byte)value); }
     public override char Read(CdrReader reader) => (char)reader.Scalar<byte>();
 }
 internal sealed class CdrEnumCodec<T>(int bitBound, bool bitmask = false) : CdrCodec<T> where T : struct, Enum
 {
+    internal override bool MayContainCycles => false;
     private readonly int width = bitBound is > 0 and <= 64 ? bitBound <= 8 ? 1 : bitBound <= 16 ? 2 : bitBound <= 32 ? 4 : 8 : throw new ArgumentOutOfRangeException(nameof(bitBound));
     private static readonly ulong AllowedBits = Enum.GetValues<T>().Aggregate(0UL, (mask, value) => mask | (Enum.GetUnderlyingType(typeof(T)) == typeof(ulong) ? Convert.ToUInt64(value) : unchecked((ulong)Convert.ToInt64(value))));
     private bool Valid(T value) => bitmask ? (Convert.ToUInt64(value) & ~AllowedBits) == 0 : Enum.IsDefined(value);
@@ -375,10 +433,39 @@ public sealed class CdrStructMember<T, TField>(uint id, bool key, bool optional,
 }
 
 /// <summary>Generated field-specific operations with the generic codec retained for key-only samples.</summary>
-public sealed class GeneratedCdrCodec<T>(CdrCodec<T> fallback, Action<CdrWriter, T> write, Func<CdrReader, T?, T> read)
-    : CdrCodec<T>(fallback.Extensibility) where T : class
+public sealed class GeneratedCdrCodec<T> : CdrCodec<T> where T : class
 {
+    private readonly CdrCodec<T> fallback;
+    private readonly Action<CdrWriter, T> write;
+    private readonly Func<CdrReader, T?, T> read;
+    private readonly bool mayContainCycles;
+    public GeneratedCdrCodec(CdrCodec<T> fallback, Action<CdrWriter, T> write, Func<CdrReader, T?, T> read)
+        : this(fallback, write, read, mayContainCycles: true) { }
+    public GeneratedCdrCodec(CdrCodec<T> fallback, Action<CdrWriter, T> write, Func<CdrReader, T?, T> read, bool mayContainCycles)
+        : base(fallback.Extensibility)
+    { this.fallback = fallback; this.write = write; this.read = read; this.mayContainCycles = mayContainCycles; }
+    internal override bool MayContainCycles => mayContainCycles;
     public override void Write(CdrWriter writer, T value) => write(writer, value);
     public override T Read(CdrReader reader) => reader.KeyOnly ? fallback.Read(reader) : read(reader, null);
     internal override T ReadInto(CdrReader reader, T value) => reader.KeyOnly ? fallback.ReadInto(reader, value) : read(reader, value);
+}
+
+internal static class CdrPrimitives
+{
+    internal static void ValidateAlignment(int alignment)
+    {
+        if (alignment is not (1 or 2 or 4 or 8)) throw new ArgumentOutOfRangeException(nameof(alignment));
+    }
+    internal static void ReverseElements(Span<byte> bytes, int size)
+    {
+        for (int i = 0; i < bytes.Length; i += size) bytes.Slice(i, size).Reverse();
+    }
+}
+internal static class CdrPrimitives<T> where T : unmanaged
+{
+    // A closed list prevents CLR bool/char, enums or arbitrary unmanaged layouts
+    // from accidentally opting into numeric CDR bulk transfer.
+    internal static int Size => typeof(T) == typeof(byte) || typeof(T) == typeof(sbyte) || typeof(T) == typeof(short) || typeof(T) == typeof(ushort)
+        || typeof(T) == typeof(int) || typeof(T) == typeof(uint) || typeof(T) == typeof(long) || typeof(T) == typeof(ulong)
+        || typeof(T) == typeof(float) || typeof(T) == typeof(double) ? Unsafe.SizeOf<T>() : throw new NotSupportedException("Only numeric IDL primitives support bulk CDR transfer.");
 }

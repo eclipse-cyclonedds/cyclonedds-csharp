@@ -62,6 +62,11 @@ internal static partial class Program
             directRecursive.children.Add(new DirectRecursive { id = 13 });
             Check("direct-recursive", DirectRecursive.TypeSupport, directRecursive);
             if (representation == DataRepresentationKind.Xcdr2) Check("direct-mixed", DirectMixed.TypeSupport, new DirectMixed { id = 4, optional_value = new Optional { id = 8, number = 2, point = new Point { x = 3, y = 4 } }, mutable_value = new Recursive { id = 9, child = new Recursive { id = 10 } } });
+            Check("numeric-collections", NumericCollections.TypeSupport, MakeNumericCollections());
+            Check("empty-numeric-collections", NumericCollections.TypeSupport, new NumericCollections { id = 7, prefix = 9, suffix = 8 });
+            Check("scalar-blocks", ScalarBlocks.TypeSupport, new ScalarBlocks { id = 7, a = 1, b = 255, c = -127, d = short.MinValue, e = ushort.MaxValue, f = int.MinValue, g = uint.MaxValue, h = -1.25f, x = -2.5, y = double.Epsilon, i = long.MinValue, j = ulong.MaxValue });
+            var mutual = new MutualA { id = 1 }; var child = new MutualB(); child.parents.Add(new MutualA { id = 2 }); mutual.children.Add(child);
+            Check("mutual-recursion", MutualA.TypeSupport, mutual);
             Check("keyless", Keyless.TypeSupport, new Keyless { value = 10 });
         }
         Run("CDR.big-endian-fixture", () =>

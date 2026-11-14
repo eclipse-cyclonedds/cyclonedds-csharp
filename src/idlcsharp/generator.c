@@ -41,6 +41,12 @@ typedef struct shape {
   size_t rank;
 } shape;
 
+typedef struct cdr_analysis {
+  const void *type;
+  bool visiting, may_cycle;
+  struct cdr_analysis *next;
+} cdr_analysis;
+
 typedef struct generator {
   const idl_pstate_t *pstate;
   FILE *cs;
@@ -48,6 +54,7 @@ typedef struct generator {
   const char *stem;
   int next_id;
   int error;
+  cdr_analysis *cdr_types;
 } generator;
 
 static const char *primitive(const void *node, bool codec) {
@@ -219,65 +226,165 @@ static bool direct_cdr_struct(const void *node) {
   return true;
 }
 
+/* Memoized DFS of declared wire types. Unknown/over-deep paths are conservative.
+   A CLR object's extra derived-class fields are never traversed by these codecs. */
+static bool cdr_may_cycle(generator *g, const void *type, unsigned depth) {
+  shape s;
+  if (depth > 256 || !get_shape(&s, type, NULL)) return true;
+  type = s.base;
+  if (primitive(type, false) || idl_is_string(type) || idl_is_enum(type) || idl_is_bitmask(type)) return false;
+  cdr_analysis *entry;
+  for (entry = g->cdr_types; entry; entry = entry->next)
+    if (entry->type == type) return entry->visiting || entry->may_cycle;
+  entry = calloc(1, sizeof(*entry));
+  if (!entry) { g->error = IDL_RETCODE_NO_MEMORY; return true; }
+  entry->type = type; entry->visiting = true; entry->next = g->cdr_types; g->cdr_types = entry;
+  bool cycle = false;
+  if (idl_is_sequence(type)) cycle = cdr_may_cycle(g, idl_type_spec(type), depth + 1);
+  else if (idl_is_struct(type)) {
+    const idl_member_t *m;
+    IDL_FOREACH(m, ((const idl_struct_t *)type)->members)
+      cycle |= m->external.value || cdr_may_cycle(g, m->type_spec, depth + 1);
+  } else if (idl_is_union(type)) {
+    const idl_case_t *c;
+    IDL_FOREACH(c, ((const idl_union_t *)type)->cases)
+      cycle |= c->external.value || cdr_may_cycle(g, c->type_spec, depth + 1);
+  } else cycle = true;
+  entry->visiting = false; entry->may_cycle = cycle;
+  return cycle;
+}
+
+typedef struct cdr_field {
+  const idl_member_t *member;
+  const idl_declarator_t *decl;
+  int index;
+} cdr_field;
+
+static void cdr_next_field(cdr_field *field) {
+  field->decl = idl_next(field->decl);
+  if (!field->decl) {
+    field->member = idl_next(field->member);
+    if (field->member) field->decl = field->member->declarators;
+  }
+  field->index++;
+}
+
+static int cdr_numeric_size(cdr_field field) {
+  shape s;
+  if (!field.member || !get_shape(&s, field.member->type_spec, field.decl) || s.rank) return 0;
+  switch (idl_type(s.base)) {
+    case IDL_INT8: case IDL_UINT8: case IDL_OCTET: return 1;
+    case IDL_SHORT: case IDL_USHORT: case IDL_INT16: case IDL_UINT16: return 2;
+    case IDL_LONG: case IDL_ULONG: case IDL_INT32: case IDL_UINT32: case IDL_FLOAT: return 4;
+    case IDL_LLONG: case IDL_ULLONG: case IDL_INT64: case IDL_UINT64: case IDL_DOUBLE: return 8;
+    default: return 0;
+  }
+}
+
+static const char *cdr_numeric_name(const void *type) {
+  shape s; (void)get_shape(&s, type, NULL);
+  switch (idl_type(s.base)) {
+    case IDL_SHORT: case IDL_INT16: return "Int16";
+    case IDL_USHORT: case IDL_UINT16: return "UInt16";
+    case IDL_LONG: case IDL_INT32: return "Int32";
+    case IDL_ULONG: case IDL_UINT32: return "UInt32";
+    case IDL_LLONG: case IDL_INT64: return "Int64";
+    case IDL_ULLONG: case IDL_UINT64: return "UInt64";
+    case IDL_FLOAT: return "Single";
+    case IDL_DOUBLE: return "Double";
+    default: return NULL;
+  }
+}
+
+/* Runs of equal-width primitives need only one alignment/bounds check. Restrict
+   run size to keep generated local spans and method bodies predictable. */
+static int cdr_run_count(cdr_field field) {
+  const int size = cdr_numeric_size(field);
+  int count = 0;
+  while (size && cdr_numeric_size(field) == size && count < 32) { count++; cdr_next_field(&field); }
+  return count;
+}
+
+static void emit_cdr_run_fields(FILE *f, cdr_field field, int count, bool read, bool little_endian) {
+  int size = cdr_numeric_size(field), block = field.index;
+  for (int i = 0; i < count; i++, cdr_next_field(&field)) {
+    const char *member = member_name(field.decl);
+    if (size == 1) {
+      shape s; (void)get_shape(&s, field.member->type_spec, field.decl);
+      if (read) fprintf(f, "        value.@%s = unchecked((%s)block_%d[%d]);\n", member, primitive(s.base, false), block, i);
+      else fprintf(f, "        block_%d[%d] = unchecked((byte)value.@%s);\n", block, i, member);
+    } else if (read)
+      fprintf(f, "            value.@%s = global::System.Buffers.Binary.BinaryPrimitives.Read%s%sEndian(block_%d.Slice(%d, %d));\n",
+        member, cdr_numeric_name(field.member->type_spec), little_endian ? "Little" : "Big", block, i * size, size);
+    else
+      fprintf(f, "        global::System.Buffers.Binary.BinaryPrimitives.Write%sLittleEndian(block_%d.Slice(%d, %d), value.@%s);\n",
+        cdr_numeric_name(field.member->type_spec), block, i * size, size, member);
+  }
+}
+
+static void emit_cdr_run(FILE *f, cdr_field field, int count, bool read) {
+  int size = cdr_numeric_size(field);
+  fprintf(f, "        var block_%d = stream.%sBlock(%d, %d);\n", field.index, read ? "Read" : "Write", count * size, size);
+  if (!read || size == 1) emit_cdr_run_fields(f, field, count, read, true);
+  else {
+    fputs("        if (stream.IsLittleEndian)\n        {\n", f);
+    emit_cdr_run_fields(f, field, count, true, true);
+    fputs("        }\n        else\n        {\n", f);
+    emit_cdr_run_fields(f, field, count, true, false);
+    fputs("        }\n", f);
+  }
+}
+
 static bool direct_cdr_field(const shape *s) {
   return !s->rank && (primitive(s->base, false) || idl_is_string(s->base) || direct_cdr_struct(s->base));
 }
 
-static void emit_direct_cdr_struct(generator *g, const idl_struct_t *s) {
+static void emit_direct_cdr_struct(generator *g, const idl_struct_t *s, bool may_cycle) {
   FILE *f = g->cs;
   const char *name = idl_identifier(s);
-  const idl_member_t *m;
-  int index = 0;
-  IDL_FOREACH(m, s->members) {
-    const idl_declarator_t *d;
-    IDL_FOREACH(d, m->declarators) {
-      shape field; (void)get_shape(&field, m->type_spec, d);
-      if (!direct_cdr_field(&field)) {
-        fputs("    private static readonly global::Org.Eclipse.CycloneDDS.Codec<", f);
-        type_name(f, m->type_spec, d);
-        fprintf(f, "> __CdrMember_%d = ", index);
-        codec(f, m->type_spec, d); fputs(";\n", f);
-      }
-      index++;
+  cdr_field first = { s->members, s->members ? s->members->declarators : NULL, 0 };
+  for (cdr_field at = first; at.member; cdr_next_field(&at)) {
+    shape field; (void)get_shape(&field, at.member->type_spec, at.decl);
+    if (!direct_cdr_field(&field)) {
+      fputs("    private static readonly global::Org.Eclipse.CycloneDDS.Codec<", f);
+      type_name(f, at.member->type_spec, at.decl);
+      fprintf(f, "> __CdrMember_%d = ", at.index);
+      codec(f, at.member->type_spec, at.decl); fputs(";\n", f);
     }
   }
-  fprintf(f, "    public static void __WriteCdr(global::Org.Eclipse.CycloneDDS.CdrWriter stream, @%s value)\n    {\n        using var scope = stream.BeginStructure(value, global::Org.Eclipse.CycloneDDS.CdrExtensibility.Final);\n", name);
-  index = 0;
-  IDL_FOREACH(m, s->members) {
-    const idl_declarator_t *d;
-    IDL_FOREACH(d, m->declarators) {
-      shape field; (void)get_shape(&field, m->type_spec, d);
-      const char *member = member_name(d);
-      if (direct_cdr_field(&field)) {
-        if (primitive(field.base, false))
-          fprintf(f, "        stream.%s(value.@%s);\n", idl_type(field.base) == IDL_BOOL ? "Boolean" : idl_type(field.base) == IDL_CHAR ? "Char" : "Scalar", member);
-        else if (idl_is_string(field.base)) fprintf(f, "        stream.String(value.@%s, %"PRIu32");\n", member, idl_bound(field.base));
-        else { fputs("        ", f); scoped(f, field.base, true); fprintf(f, ".__WriteCdr(stream, value.@%s);\n", member); }
-      } else fprintf(f, "        __CdrMember_%d.WriteCdr(stream, value.@%s);\n", index, member);
-      index++;
-    }
+  fprintf(f, "    public static void __WriteCdr(global::Org.Eclipse.CycloneDDS.CdrWriter stream, @%s value)\n    {\n        using var scope = stream.BeginStructure(value, global::Org.Eclipse.CycloneDDS.CdrExtensibility.Final, %s);\n", name, may_cycle ? "true" : "false");
+  for (cdr_field at = first; at.member;) {
+    int run = cdr_run_count(at);
+    if (run >= 2) { emit_cdr_run(f, at, run, false); while (run--) cdr_next_field(&at); continue; }
+    shape field; (void)get_shape(&field, at.member->type_spec, at.decl);
+    const char *member = member_name(at.decl);
+    if (direct_cdr_field(&field)) {
+      if (primitive(field.base, false))
+        fprintf(f, "        stream.%s(value.@%s);\n", idl_type(field.base) == IDL_BOOL ? "Boolean" : idl_type(field.base) == IDL_CHAR ? "Char" : "Scalar", member);
+      else if (idl_is_string(field.base)) fprintf(f, "        stream.String(value.@%s, %"PRIu32");\n", member, idl_bound(field.base));
+      else { fputs("        ", f); scoped(f, field.base, true); fprintf(f, ".__WriteCdr(stream, value.@%s);\n", member); }
+    } else fprintf(f, "        __CdrMember_%d.WriteCdr(stream, value.@%s);\n", at.index, member);
+    cdr_next_field(&at);
   }
   fprintf(f, "    }\n    public static @%s __ReadCdr(global::Org.Eclipse.CycloneDDS.CdrReader stream, @%s? value)\n    {\n        if (stream.KeyOnly) return __Codec.ReadCdr(stream);\n        using var scope = stream.BeginStructure(global::Org.Eclipse.CycloneDDS.CdrExtensibility.Final);\n        if (value is null) value = new @%s();\n", name, name, name);
-  index = 0;
-  IDL_FOREACH(m, s->members) {
-    const idl_declarator_t *d;
-    IDL_FOREACH(d, m->declarators) {
-      shape field; (void)get_shape(&field, m->type_spec, d);
-      const char *member = member_name(d);
-      fprintf(f, "        value.@%s = ", member);
-      if (direct_cdr_field(&field)) {
-        if (primitive(field.base, false)) {
-          if (idl_type(field.base) == IDL_BOOL) fputs("stream.Boolean()", f);
-          else if (idl_type(field.base) == IDL_CHAR) fputs("stream.Char()", f);
-          else { fputs("stream.Scalar<", f); type_name(f, m->type_spec, d); fputs(">()", f); }
-        } else if (idl_is_string(field.base)) fprintf(f, "stream.String(%"PRIu32")", idl_bound(field.base));
-        else { scoped(f, field.base, true); fprintf(f, ".__ReadCdr(stream, value.@%s)", member); }
-      } else if (!field.rank && idl_is_struct(field.base))
-        fprintf(f, "value.@%s is null ? __CdrMember_%d.ReadCdr(stream) : __CdrMember_%d.ReadCdr(stream, value.@%s)", member, index, index, member);
-      else fprintf(f, "__CdrMember_%d.ReadCdr(stream)", index);
-      fputs(";\n", f);
-      index++;
-    }
+  for (cdr_field at = first; at.member;) {
+    int run = cdr_run_count(at);
+    if (run >= 2) { emit_cdr_run(f, at, run, true); while (run--) cdr_next_field(&at); continue; }
+    shape field; (void)get_shape(&field, at.member->type_spec, at.decl);
+    const char *member = member_name(at.decl);
+    fprintf(f, "        value.@%s = ", member);
+    if (direct_cdr_field(&field)) {
+      if (primitive(field.base, false)) {
+        if (idl_type(field.base) == IDL_BOOL) fputs("stream.Boolean()", f);
+        else if (idl_type(field.base) == IDL_CHAR) fputs("stream.Char()", f);
+        else { fputs("stream.Scalar<", f); type_name(f, at.member->type_spec, at.decl); fputs(">()", f); }
+      } else if (idl_is_string(field.base)) fprintf(f, "stream.String(%"PRIu32")", idl_bound(field.base));
+      else { scoped(f, field.base, true); fprintf(f, ".__ReadCdr(stream, value.@%s)", member); }
+    } else if (!field.rank && idl_is_struct(field.base))
+      fprintf(f, "value.@%s is null ? __CdrMember_%d.ReadCdr(stream) : __CdrMember_%d.ReadCdr(stream, value.@%s)", member, at.index, at.index, member);
+    else fprintf(f, "__CdrMember_%d.ReadCdr(stream)", at.index);
+    fputs(";\n", f);
+    cdr_next_field(&at);
   }
   fputs("        return value;\n    }\n", f);
 }
@@ -368,7 +475,9 @@ static int emit_struct(generator *g, const idl_struct_t *s) {
   fputs("        return hash.ToHashCode();\n    }\n", f);
 
   bool direct_cdr = direct_cdr_struct(s);
-  if (direct_cdr) emit_direct_cdr_struct(g, s);
+  bool may_cycle = direct_cdr ? cdr_may_cycle(g, s, 0) : true;
+  if (g->error) return g->error;
+  if (direct_cdr) emit_direct_cdr_struct(g, s, may_cycle);
   fprintf(f, "    public static global::Org.Eclipse.CycloneDDS.Codec<@%s> __Codec { get; } = new global::Org.Eclipse.CycloneDDS.StructCodec<@%s>(\n        global::__Dds_%s.Library.Size(%d), () => new @%s()", name, name, g->stem, id, name);
   IDL_FOREACH(m, s->members) {
     const idl_declarator_t *d;
@@ -400,7 +509,7 @@ static int emit_struct(generator *g, const idl_struct_t *s) {
       fprintf(f, ", value => value.@%s, (value, field) => value.@%s = field)", member_name(d), member_name(d));
     }
   }
-  if (direct_cdr) fputs("), __WriteCdr, __ReadCdr)", f);
+  if (direct_cdr) fprintf(f, "), __WriteCdr, __ReadCdr, %s)", may_cycle ? "true" : "false");
   else fputc(')', f);
   fputs(");\n", f);
   if (idl_is_topic(s, g->pstate->keylists)) {
@@ -752,6 +861,7 @@ EXPORT int generate(const idl_pstate_t *pstate, const idlc_generator_config_t *c
   }
   if (g.cs && fclose(g.cs) && !rc) rc = IDL_RETCODE_NO_ACCESS;
   if (rc) remove(cs_path);
+  while (g.cdr_types) { cdr_analysis *next = g.cdr_types->next; free(g.cdr_types); g.cdr_types = next; }
   free(stem); free(cs_path);
   return rc;
 }

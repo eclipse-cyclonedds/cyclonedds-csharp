@@ -277,6 +277,7 @@ internal static partial class Program
             WaitUntil(() => Volatile.Read(ref count) == 100); True(listener.LastException is null);
         }));
         RegisterCdrTests();
+        RegisterCdrBlockTests();
         RegisterCodecLoopTests();
         RegisterObjectReuseTests();
         RegisterSequenceCodecTests();

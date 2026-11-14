@@ -9,6 +9,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 using System.Collections;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using System.Text;
 using Omg.Types;
 
@@ -101,6 +102,7 @@ public abstract class Codec<T>
     }
     internal virtual bool HasCdr => cdr is not null;
     internal virtual bool Primitive => cdr?.Primitive ?? false;
+    internal virtual bool MayContainCycles => cdr?.MayContainCycles ?? true;
     internal virtual CdrExtensibility Extensibility => cdr?.Extensibility ?? CdrExtensibility.Final;
     public virtual void WriteCdr(CdrWriter writer, T value) => (cdr ?? throw new NotSupportedException("This custom codec has no CDR serializer.")).Write(writer, value);
     internal virtual T ReadCdrInto(CdrReader reader, T value) => (cdr ?? throw new NotSupportedException("This custom codec has no CDR serializer.")).ReadInto(reader, value);
@@ -126,9 +128,20 @@ internal interface IBlittableCodec<T>
     void CopyToNative(ReadOnlySpan<T> source, nint destination);
 }
 
+// Only built-in numeric codecs can participate; custom codecs retain their semantics.
+internal interface ICdrPrimitiveCodec<T>
+{
+    int ElementSize { get; }
+    void Write(CdrWriter writer, ReadOnlySpan<T> values);
+    void Read(CdrReader reader, Span<T> values);
+    void WriteArray(CdrWriter writer, Array values);
+    void ReadArray(CdrReader reader, Array values);
+}
+
 public sealed class DeferredCodec<T>(Func<Codec<T>> resolve) : Codec<T>
 {
     internal override bool HasCdr => resolve().HasCdr;
+    internal override bool MayContainCycles => resolve().MayContainCycles;
     internal override CdrExtensibility Extensibility => resolve().Extensibility;
     public override void WriteCdr(CdrWriter writer, T value) => resolve().WriteCdr(writer, value);
     public override T ReadCdr(CdrReader reader) => resolve().ReadCdr(reader);
@@ -208,10 +221,25 @@ public static unsafe class Codecs
         codec.Write(p, value, arena);
         return codec.Read(p);
     }
-    private sealed class BlittableCodec<T> : Codec<T>, IBlittableCodec<T> where T : unmanaged
+    private sealed class BlittableCodec<T> : Codec<T>, IBlittableCodec<T>, ICdrPrimitiveCodec<T> where T : unmanaged
     {
         internal override bool HasCdr => true;
         internal override bool Primitive => true;
+        internal override bool MayContainCycles => false;
+        public int ElementSize => sizeof(T);
+        public void Write(CdrWriter writer, ReadOnlySpan<T> values) => writer.WritePrimitives(values);
+        public void Read(CdrReader reader, Span<T> values) => reader.ReadPrimitives(values);
+        public void WriteArray(CdrWriter writer, Array values) => writer.WritePrimitives<T>(ArraySpan(values));
+        public void ReadArray(CdrReader reader, Array values) => reader.ReadPrimitives<T>(ArraySpan(values));
+        private static Span<T> ArraySpan(Array values)
+        {
+            // MemoryMarshal supplies the managed data reference for every CLR array rank.
+            // Exact element identity is required before constructing a numeric span;
+            // no native layout, pointers or reference-containing types participate.
+            if (values.GetType().GetElementType() != typeof(T)) throw new ArgumentException("Array element type does not match its IDL codec.", nameof(values));
+            if (values.Length == 0) return Span<T>.Empty;
+            return MemoryMarshal.CreateSpan(ref Unsafe.As<byte, T>(ref MemoryMarshal.GetArrayDataReference(values)), values.Length);
+        }
         public override void WriteCdr(CdrWriter writer, T value) => writer.Scalar(value);
         public override T ReadCdr(CdrReader reader) => reader.Scalar<T>();
         public override int Size => sizeof(T);
@@ -289,6 +317,7 @@ public sealed class OptionalValueCodec<T>(Codec<T> element) : Codec<T?> where T 
 
 public sealed unsafe class StringCodec(int bound = 0) : Codec<string>
 {
+    internal override bool MayContainCycles => false;
     internal override bool HasCdr => true;
     public override void WriteCdr(CdrWriter writer, string value) => writer.String(value, bound);
     public override string ReadCdr(CdrReader reader) => reader.String(bound);
@@ -310,27 +339,39 @@ public sealed unsafe class StringCodec(int bound = 0) : Codec<string>
 
 public sealed class SequenceCodec<T>(Codec<T> element, int bound = 0) : Codec<ISequence<T>>
 {
+    private readonly ICdrPrimitiveCodec<T>? cdrBulk = element as ICdrPrimitiveCodec<T>;
     internal override bool HasCdr => element.HasCdr;
+    internal override bool MayContainCycles => element.MayContainCycles;
     public override void WriteCdr(CdrWriter writer, ISequence<T> value)
     {
         ArgumentNullException.ThrowIfNull(value);
         if (bound > 0 && value.Count > bound) throw new ArgumentOutOfRangeException(nameof(value));
-        writer.Enter(value);
+        bool trackCycles = value.Count != 0 && element.MayContainCycles;
+        writer.Enter(value, trackCycles);
         try
         {
             int end = writer.BeginCollection(element.Primitive);
             writer.Scalar(checked((uint)value.Count));
-            for (int i = 0; i < value.Count; i++) element.WriteCdr(writer, value[i]);
+            if (cdrBulk is not null && value is Sequence<T> sequence)
+                cdrBulk.Write(writer, CollectionsMarshal.AsSpan(sequence));
+            else
+                for (int i = 0; i < value.Count; i++) element.WriteCdr(writer, value[i]);
             writer.EndDelimited(end);
         }
-        finally { writer.Leave(value); }
+        finally { writer.Leave(value, trackCycles); }
     }
     public override ISequence<T> ReadCdr(CdrReader reader)
     {
         using var scope = reader.Collection(element.Primitive);
-        int count = reader.Count(bound);
+        int count = reader.Count(bound, cdrBulk?.ElementSize ?? 1);
         var result = new Sequence<T> { Capacity = count };
-        for (int i = 0; i < count; i++) result.Add(element.ReadCdr(reader));
+        if (cdrBulk is not null)
+        {
+            CollectionsMarshal.SetCount(result, count);
+            cdrBulk.Read(reader, CollectionsMarshal.AsSpan(result));
+        }
+        else
+            for (int i = 0; i < count; i++) result.Add(element.ReadCdr(reader));
         return result;
     }
     private readonly IBlittableCodec<T>? bulk = element as IBlittableCodec<T>;
@@ -370,25 +411,33 @@ public sealed class SequenceCodec<T>(Codec<T> element, int bound = 0) : Codec<IS
 
 public sealed class ArrayCodec<TArray, TElement>(Codec<TElement> element, params int[] dimensions) : Codec<TArray> where TArray : class
 {
+    private readonly ICdrPrimitiveCodec<TElement>? cdrBulk = element as ICdrPrimitiveCodec<TElement>;
     internal override bool HasCdr => element.HasCdr;
+    internal override bool MayContainCycles => element.MayContainCycles;
     public override void WriteCdr(CdrWriter writer, TArray value)
     {
         Validate(value, dimensions);
-        writer.Enter(value);
+        bool trackCycles = count != 0 && element.MayContainCycles;
+        writer.Enter(value, trackCycles);
         try
         {
             int end = writer.BeginCollection(element.Primitive);
-            foreach (TElement item in (Array)(object)value) element.WriteCdr(writer, item);
+            if (cdrBulk is not null) cdrBulk.WriteArray(writer, (Array)(object)value);
+            else foreach (TElement item in (Array)(object)value) element.WriteCdr(writer, item);
             writer.EndDelimited(end);
         }
-        finally { writer.Leave(value); }
+        finally { writer.Leave(value, trackCycles); }
     }
     public override TArray ReadCdr(CdrReader reader)
     {
         using var scope = reader.Collection(element.Primitive);
         var result = Array.CreateInstance(typeof(TElement), dimensions);
-        var indices = new int[dimensions.Length];
-        for (int i = 0; i < count; i++) { Indices(i, indices); result.SetValue(element.ReadCdr(reader), indices); }
+        if (cdrBulk is not null) cdrBulk.ReadArray(reader, result);
+        else
+        {
+            var indices = new int[dimensions.Length];
+            for (int i = 0; i < count; i++) { Indices(i, indices); result.SetValue(element.ReadCdr(reader), indices); }
+        }
         return (TArray)(object)result;
     }
     private readonly int count = dimensions.Aggregate(1, checked((a, b) => a * b));

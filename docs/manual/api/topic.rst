@@ -24,7 +24,10 @@ provides DDS discovery type information and managed XCDR1/XCDR2 codecs.
 Normal writes and reads serialize directly between C# objects and CDR bytes.
 Final structs without optional members use generated field-specific operations;
 other types and key-only samples use the common XCDR codec. Both paths retain
-bounds, nesting and cycle checks.
+bounds and nesting checks. The generator proves when a type graph is acyclic;
+recursive and unknown graphs retain reference-cycle checks. Numeric field runs
+use checked scalar blocks, and numeric sequences and arrays use endian-aware
+bulk transfer. Decoded messages always own their managed data.
 Cyclone DDS handles transport and keyhash calculation, including MD5 for long keys.
 Native sample marshalling remains for instance-control operations, query predicates
 and custom codecs without CDR support.

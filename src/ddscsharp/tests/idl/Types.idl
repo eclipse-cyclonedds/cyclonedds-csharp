@@ -128,6 +128,41 @@ module Test {
     @optional Recursive child;
     sequence<Recursive> children;
   };
+  @final struct NumericCollections {
+    @key long id;
+    octet prefix;
+    sequence<octet> bytes;
+    sequence<int8> signed_bytes;
+    sequence<short> shorts;
+    sequence<unsigned short> ushorts;
+    sequence<long> ints;
+    sequence<unsigned long> uints;
+    sequence<long long> longs;
+    sequence<unsigned long long> ulongs;
+    sequence<float> singles;
+    sequence<double> doubles;
+    long fixed_ints[3];
+    double fixed_doubles[3];
+    double matrix[2][3];
+    octet suffix;
+  };
+  @final struct ScalarBlocks {
+    @key long id;
+    octet a, b;
+    int8 c;
+    short d;
+    unsigned short e;
+    long f;
+    unsigned long g;
+    float h;
+    double x, y;
+    long long i;
+    unsigned long long j;
+  };
+  struct MutualA;
+  struct MutualB;
+  @final struct MutualA { @key long id; sequence<MutualB> children; };
+  @final struct MutualB { sequence<MutualA> parents; };
   @data_representation(XCDR2) @final struct DirectMixed {
     @key long id;
     Recursive mutable_value;
