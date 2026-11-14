@@ -26,3 +26,6 @@ Publishing
 * ``WaitForAcknowledgments`` waits for reliable delivery acknowledgments.
 
 ``MatchedSubscriptions`` lists currently matched reader handles.
+
+Typed events and status properties expose matching, deadline violations and
+liveliness loss; see :doc:`../howtos/status`.

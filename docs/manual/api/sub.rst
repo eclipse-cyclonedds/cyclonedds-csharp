@@ -26,4 +26,9 @@ The default maximum is 1024 samples per call. Read/take can also use a read or
 query condition. Check ``Info.ValidData`` before accessing ordinary data fields;
 invalid-data notifications carry instance keys and lifecycle information.
 
-``MatchedPublications`` lists currently matched writer handles.
+``WaitDataAsync(cancellationToken)`` awaits unread samples without consuming them.
+It returns ``false`` if the reader is disposed while waiting.
+
+``MatchedPublications`` lists currently matched writer handles. Typed events and
+status properties expose matching, deadline violations and liveliness changes;
+see :doc:`../howtos/status`.

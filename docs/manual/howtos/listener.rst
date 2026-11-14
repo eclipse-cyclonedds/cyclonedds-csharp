@@ -9,8 +9,26 @@
 
    SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
-Receive data callbacks
-======================
+Wait for data or receive callbacks
+==================================
+
+Await unread samples without a waiting thread:
+
+.. code-block:: csharp
+
+   while (await reader.WaitDataAsync(cancellationToken))
+   {
+       foreach (var sample in reader.Take())
+           if (sample.Info.ValidData)
+               Console.WriteLine(sample.Data.text);
+   }
+
+``WaitDataAsync`` returns ``false`` when the reader is disposed while waiting.
+Cancellation raises ``OperationCanceledException``. It neither consumes nor
+reserves samples; other consumers may read them first. Already-read history
+does not complete a new wait.
+
+Alternatively, register a callback:
 
 .. code-block:: csharp
 

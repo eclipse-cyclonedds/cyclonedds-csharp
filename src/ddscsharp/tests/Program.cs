@@ -11,7 +11,7 @@ using System.Diagnostics;
 using Org.Eclipse.CycloneDDS;
 using Test;
 
-internal static class Program
+internal static partial class Program
 {
     private static int passed, failed, topicId;
     private static string? filter;
@@ -276,6 +276,7 @@ internal static class Program
             for (int i = 0; i < 100; i++) w.Write(new(i, "stress", i));
             WaitUntil(() => Volatile.Read(ref count) == 100); True(listener.LastException is null);
         }));
+        RegisterAsyncListenerTests();
         Run("Entity.concurrent-parent-close", () =>
         {
             var p = Participant(); var t = p.CreateTopic(Name(), Message.TypeSupport); var w = p.CreateWriter(t);

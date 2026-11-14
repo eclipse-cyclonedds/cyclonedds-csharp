@@ -12,7 +12,7 @@ set(CYCLONEDDS_SOURCE_DIR "${PROJECT_SOURCE_DIR}/build/_deps/cyclonedds-src" CAC
 if(NOT EXISTS "${CYCLONEDDS_SOURCE_DIR}/src/core/ddsc/src/dds__entity.h")
   message(FATAL_ERROR "Set CYCLONEDDS_SOURCE_DIR to the matching Cyclone DDS source tree (scripts/bootstrap-native.sh provides it).")
 endif()
-add_library(cycloneddscsharp SHARED bridge.c)
+add_library(cycloneddscsharp SHARED bridge.c listener.c)
 target_include_directories(cycloneddscsharp PRIVATE "${CYCLONEDDS_SOURCE_DIR}/src/core/ddsc/src")
 target_link_libraries(cycloneddscsharp PRIVATE CycloneDDS::ddsc ${CMAKE_DL_LIBS})
 target_compile_definitions(cycloneddscsharp PRIVATE CS_BUILD)

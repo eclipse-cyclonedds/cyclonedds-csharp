@@ -33,6 +33,23 @@ public static class DdsRuntime
 
 internal static class Native
 {
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct StatusData
+    {
+        public ulong LastHandle;
+        public uint Kind, TotalCount;
+        public int TotalCountChange;
+        public uint CurrentCount;
+        public int CurrentCountChange;
+        public uint NotAliveCount;
+        public int NotAliveCountChange;
+        public uint Reserved;
+    }
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void StatusCallback(in StatusData status, nint argument);
+    [DllImport(Bridge, CallingConvention = CallingConvention.Cdecl)] internal static extern int cs_listener_create(StatusCallback callback, nint argument, out nint listener);
+    [DllImport(Bridge, CallingConvention = CallingConvention.Cdecl)] internal static extern int cs_listener_set(int entity, nint listener, uint mask);
+    [DllImport(Bridge, CallingConvention = CallingConvention.Cdecl)] internal static extern void cs_listener_free(nint listener);
+    [DllImport(Bridge, CallingConvention = CallingConvention.Cdecl)] internal static extern int cs_get_status(int entity, uint kind, out StatusData status);
     [DllImport(Dds, CallingConvention = CallingConvention.Cdecl)] internal static extern void dds_qset_data_representation(nint qos, uint count, short[] values);
     internal const string Dds = "ddsc", Bridge = "cycloneddscsharp";
     private static readonly Lazy<nint> BridgeModule = new(() => DdsRuntime.Load(Bridge));
@@ -94,11 +111,6 @@ internal static class Native
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     [return: MarshalAs(UnmanagedType.I1)] internal delegate bool QueryFilter(nint sample);
     [DllImport(Dds, CallingConvention = CallingConvention.Cdecl)] internal static extern int dds_create_querycondition(int reader, uint mask, QueryFilter filter);
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void DataAvailableCallback(int reader, nint argument);
-    [DllImport(Dds, CallingConvention = CallingConvention.Cdecl)] internal static extern nint dds_create_listener(nint argument);
-    [DllImport(Dds, CallingConvention = CallingConvention.Cdecl)] internal static extern void dds_delete_listener(nint listener);
-    [DllImport(Dds, CallingConvention = CallingConvention.Cdecl)] internal static extern void dds_lset_data_available(nint listener, DataAvailableCallback callback);
-    [DllImport(Dds, CallingConvention = CallingConvention.Cdecl)] internal static extern int dds_set_listener(int entity, nint listener);
     [DllImport(Dds, CallingConvention = CallingConvention.Cdecl)] internal static extern int dds_create_guardcondition(int participant);
     [DllImport(Dds, CallingConvention = CallingConvention.Cdecl)] internal static extern int dds_set_guardcondition(int condition, [MarshalAs(UnmanagedType.I1)] bool triggered);
     [DllImport(Dds, CallingConvention = CallingConvention.Cdecl)] internal static extern int dds_triggered(int condition);

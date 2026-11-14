@@ -9,7 +9,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 namespace Org.Eclipse.CycloneDDS;
 
-public sealed class DataWriter<T> : Entity where T : class
+public sealed partial class DataWriter<T> : Entity where T : class
 {
     public Topic<T> Topic { get; }
     internal DataWriter(Entity parent, Topic<T> topic, Qos? qos) : base(parent, () =>
@@ -17,6 +17,12 @@ public sealed class DataWriter<T> : Entity where T : class
         parent.RequireParticipant(topic);
         return Create(qos, q => Native.dds_create_writer(parent.Handle, topic.Handle, q, 0));
     }) => Topic = topic;
+
+    internal override void BeforeDelete()
+    {
+        closed = true;
+        endpointListener?.Dispose();
+    }
 
     private TResult WithSample<TResult>(T sample, Func<nint, TResult> action)
     {

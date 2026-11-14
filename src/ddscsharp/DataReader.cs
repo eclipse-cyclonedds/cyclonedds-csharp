@@ -9,7 +9,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 namespace Org.Eclipse.CycloneDDS;
 
-public sealed class DataReader<T> : Entity where T : class
+public sealed partial class DataReader<T> : Entity where T : class
 {
     private DataAvailableListener<T>? listener;
     public Topic<T> Topic { get; }
@@ -64,10 +64,20 @@ public sealed class DataReader<T> : Entity where T : class
         {
             _ = Handle;
             listener?.Dispose();
-            return listener = new(this, onDataAvailable);
+            listener = new(this, onDataAvailable);
+            EnsureDataCondition();
+            UpdateListenerMask();
+            QueueAvailableData();
+            return listener;
         }
     }
-    internal override void BeforeDelete() => listener?.Dispose();
+    internal override void BeforeDelete()
+    {
+        closed = true;
+        listener?.Dispose();
+        CompleteWaiters(false);
+        endpointListener?.Dispose();
+    }
     public IReadOnlyList<ulong> MatchedPublications
     {
         get
