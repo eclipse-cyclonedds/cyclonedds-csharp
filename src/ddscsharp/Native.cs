@@ -33,6 +33,7 @@ public static class DdsRuntime
 
 internal static class Native
 {
+    [DllImport(Dds, CallingConvention = CallingConvention.Cdecl)] internal static extern void dds_qset_data_representation(nint qos, uint count, short[] values);
     internal const string Dds = "ddsc", Bridge = "cycloneddscsharp";
     private static readonly Lazy<nint> BridgeModule = new(() => DdsRuntime.Load(Bridge));
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate nint LibraryPathFunction();

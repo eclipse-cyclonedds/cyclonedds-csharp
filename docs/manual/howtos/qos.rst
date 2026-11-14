@@ -27,3 +27,6 @@ A writer must offer QoS compatible with the reader's requirements.
 Policies include reliability, durability, history, resource limits, partitions
 and lifecycle settings. The native runtime validates policy combinations.
 ``GetCoreQos()`` returns only history, reliability, durability and resource limits.
+
+Set ``DataRepresentation = new[] { DataRepresentationKind.Xcdr1 }`` or
+``DataRepresentationKind.Xcdr2`` to select the wire format explicitly.

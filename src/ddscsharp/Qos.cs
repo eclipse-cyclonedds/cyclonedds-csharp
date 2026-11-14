@@ -17,6 +17,7 @@ public enum HistoryKind { KeepLast, KeepAll }
 public enum LivelinessKind { Automatic, ManualByParticipant, ManualByTopic }
 public enum OwnershipKind { Shared, Exclusive }
 public enum DestinationOrderKind { ByReceptionTimestamp, BySourceTimestamp }
+public enum DataRepresentationKind : short { Xcdr1 = 0, Xcdr2 = 2 }
 public sealed record Reliability(ReliabilityKind Kind, Duration MaxBlockingTime);
 public sealed record History(HistoryKind Kind, int Depth = 1);
 public sealed record ResourceLimits(int MaxSamples = -1, int MaxInstances = -1, int MaxSamplesPerInstance = -1);
@@ -45,6 +46,7 @@ public sealed record Qos
     public byte[]? UserData { get; init; }
     public byte[]? TopicData { get; init; }
     public byte[]? GroupData { get; init; }
+    public IReadOnlyList<DataRepresentationKind>? DataRepresentation { get; init; }
 
     internal QosHandle ToNative()
     {
@@ -60,6 +62,13 @@ public sealed record Qos
         try
         {
             var p = q.DangerousGetHandle();
+            if (DataRepresentation is { } representations)
+            {
+                if (representations.Count == 0) throw new ArgumentException("At least one data representation is required.", nameof(DataRepresentation));
+                var values = new short[representations.Count];
+                for (var i = 0; i < values.Length; i++) { Validate(representations[i]); values[i] = (short)representations[i]; }
+                Native.dds_qset_data_representation(p, checked((uint)values.Length), values);
+            }
             if (Reliability is { } r) { Validate(r.Kind); Native.dds_qset_reliability(p, r.Kind, r.MaxBlockingTime.Nanoseconds); }
             if (WriterBatching is { } batching) Native.dds_qset_writer_batching(p, batching);
             if (Durability is { } d) { Validate(d); Native.dds_qset_durability(p, d); }
