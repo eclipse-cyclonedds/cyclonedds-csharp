@@ -13,7 +13,7 @@ using Test;
 
 internal static partial class Program
 {
-    private static int passed, failed, skipped, topicId;
+    private static int passed, failed, topicId;
     private static string? filter;
     private const uint Domain = 41;
     private static readonly Qos Reliable = new()
@@ -296,7 +296,6 @@ internal static partial class Program
         Run("Interop.native-C-writer", () => Interop(true));
         Run("Interop.native-C-reader", () => Interop(false));
         Console.WriteLine($"{passed} passed, {failed} failed");
-        if (skipped != 0) Console.WriteLine($"{skipped} skipped (documented native limitations)");
         return failed == 0 ? 0 : 1;
     }
 
@@ -304,7 +303,6 @@ internal static partial class Program
     {
         if (filter is not null && !name.Contains(filter, StringComparison.OrdinalIgnoreCase)) return;
         try { test(); passed++; Console.WriteLine($"PASS {name}"); }
-        catch (KnownNativeLimitation error) { skipped++; Console.WriteLine($"SKIP {name}: {error.Message}"); }
         catch (Exception error) { failed++; Console.WriteLine($"FAIL {name}: {error}"); }
     }
     private static void True(bool value) { if (!value) throw new Exception("Assertion failed."); }

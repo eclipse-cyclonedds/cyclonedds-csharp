@@ -10,6 +10,9 @@
 #include <dds/dds.h>
 #include <string.h>
 #include "dds__writer.h"
+#include "dds__serdata_default.h"
+#include <dds/cdr/dds_cdrstream.h>
+#include <dds/ddsrt/endian.h>
 #include <dds/ddsi/ddsi_endpoint.h>
 #include <dds/ddsi/ddsi_serdata.h>
 #include <dds/ddsi/ddsi_keyhash.h>
@@ -50,7 +53,25 @@ EXPORT int32_t oracle_decode(dds_entity_t writer, const unsigned char *buffer,
     struct ddsi_keyhash keyhash;
     ddsi_serdata_get_keyhash(data, &keyhash, force_md5 != 0);
     memcpy(hash, keyhash.value, 16);
-    if (!ddsi_serdata_to_sample(data, sample, NULL, NULL)) ret = DDS_RETCODE_ERROR;
+    /* The default serdata-to-sample path uses the allocation capacity as the
+       stream size. With an evolved XCDR1 appendable type it can read spare heap
+       bytes as added members instead of applying their defaults. Use the same
+       native C decoder with a stream bounded by the actual normalized payload. */
+    struct dds_serdata_default *serialized = (struct dds_serdata_default *)data;
+    const struct dds_sertype_default *type = (const struct dds_sertype_default *)data->type;
+    const uint32_t padding = ddsrt_fromBE2u(serialized->hdr.options) & DDS_CDR_HDR_PADDING_MASK;
+    const uint32_t version = ddsi_sertype_enc_id_xcdr_version(serialized->hdr.identifier);
+    uint32_t actual_size;
+    dds_istream_t stream;
+    /* Poison spare capacity so accidentally decoding it fails deterministically
+       on every platform, including allocators that usually return zeroed pages. */
+    memset(serialized->data + serialized->pos, 0xa5, serialized->size - serialized->pos);
+    if (serialized->pos < padding || dds_stream_normalize_to_istream_with_flags(&stream,
+        serialized->data, serialized->pos - padding, false, version, &type->type,
+        false, type->normalize_flags, &actual_size) != DDS_STREAM_NORMALIZE_SUCCESS)
+      ret = DDS_RETCODE_BAD_PARAMETER;
+    else
+      dds_stream_read_sample(&stream, sample, &dds_cdrstream_default_allocator, &type->type);
     ddsi_serdata_unref(data);
   }
   dds_writer_unlock(wr);

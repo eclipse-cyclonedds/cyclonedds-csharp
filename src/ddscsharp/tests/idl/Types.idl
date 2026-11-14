@@ -123,6 +123,8 @@ module Test {
     };
   };
   @appendable struct EnumEnvelopeV0 { @key long id; };
+  @appendable struct BoundaryV1 { @key long id; };
+  @appendable struct BoundaryV2 { @key long id; long added; };
   @final struct Keyless { long value; };
   @final union Choice switch(long) {
     case 1: long number;

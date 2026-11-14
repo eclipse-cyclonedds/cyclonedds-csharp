@@ -7,7 +7,6 @@ using NewEnum = Test.EnumNew;
 
 internal static partial class Program
 {
-    private sealed class KnownNativeLimitation(string message) : Exception(message);
     private static OldEnum.Envelope OldEnumSample() => new()
     {
         id = 7, state = OldEnum.StatusCode.READY, small = OldEnum.SmallStatusCode.SMALL_UNKNOWN,
@@ -125,11 +124,6 @@ internal static partial class Program
         {
             Equal(0, CdrOracle.oracle_decode(CdrOracle.Handle(writer), bytes, (uint)bytes.Length, decoded, new byte[16], 0));
             var actual = OldEnum.Envelope.__Codec.Read(decoded);
-            // Do not hide unrelated native failures: recognize only this exact observed mismatch.
-            var zeroDefaults = new OldEnum.Envelope { id = 7, state = OldEnum.StatusCode.READY, small = actual.small };
-            bool observedSmallDefault = actual.small is OldEnum.SmallStatusCode.SMALL_READY or OldEnum.SmallStatusCode.SMALL_UNKNOWN;
-            if (representation == DataRepresentationKind.Xcdr1 && observedSmallDefault && actual.Equals(zeroDefaults))
-                throw new KnownNativeLimitation($"C decoder gives absent XCDR1 enum fields state={(int)actual.state}, small={(int)actual.small}; both should use @default_literal=1. Managed decoding and DDS default tests remain mandatory.");
             if (!actual.Equals(new OldEnum.Envelope { id = 7 }))
                 throw new Exception("Native enum defaults: " + System.Text.Json.JsonSerializer.Serialize(actual));
         }

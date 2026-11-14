@@ -27,15 +27,14 @@ The runtime suite covers independent IDL schema versions in `EvolutionTests.cs`:
   headers. They check unknown members, reordering, duplicate IDs, every truncated prefix,
   invalid lengths and malformed list terminators.
 
-Known native limitation: the C reference decoder currently fills the missing XCDR1
-32-bit appendable enum field with zero instead of its nonzero `@default_literal`;
-the 8-bit field has been observed with either zero or the correct default.
-The native default test executes and reports SKIP only for these observed results,
-while verifying all other decoded fields;
-other errors fail. A fixed native decoder automatically turns it into a pass.
-This skip is counted separately from passes. The corresponding managed and DDS
-default tests remain required for both representations, as does the native XCDR2
-default test. Unknown-value rejection and all other native enum tests are required.
+The native oracle decodes through Cyclone's C stream decoder with the exact
+normalized payload length, excluding encapsulation padding. Its serdata allocation's
+unused capacity is poisoned so it cannot accidentally serve as added fields.
+The generic serdata-to-sample path uses allocation capacity for its input stream;
+that produces allocator-dependent values for missing XCDR1 appendable fields.
+Boundary tests vary trailing string lengths to check default initialization
+independently of padding/alignment. All enum default tests are mandatory; there
+are no skipped native-default cases.
 
 Filter the managed test executable to run only evolution tests:
 

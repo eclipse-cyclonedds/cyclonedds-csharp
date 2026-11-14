@@ -19,6 +19,20 @@ internal static partial class Program
 
     private static void RegisterEvolutionTests()
     {
+        Run("Evolution.Xcdr1.native-appendable-defaults-at-payload-boundary", () =>
+        {
+            // The oracle poisons spare serdata capacity. Vary the final string's
+            // alignment so capacity/padding cannot be mistaken for appended fields.
+            for (int length = 0; length < 16; length++)
+            {
+                string text = new('x', length);
+                CheckNativeEvolution(AppendableV1.TypeSupport, new AppendableV1 { id = 9, text = text },
+                    AppendableV2.TypeSupport, new AppendableV2 { id = 9, text = text }, DataRepresentationKind.Xcdr1);
+            }
+        });
+        Run("Evolution.Xcdr1.native-fixed-size-appendable-defaults", () =>
+            CheckNativeEvolution(BoundaryV1.TypeSupport, new BoundaryV1 { id = 9 },
+                BoundaryV2.TypeSupport, new BoundaryV2 { id = 9 }, DataRepresentationKind.Xcdr1));
         foreach (var representation in new[] { DataRepresentationKind.Xcdr1, DataRepresentationKind.Xcdr2 })
         {
             Run($"Evolution.{representation}.mutable-old-to-new", () =>
