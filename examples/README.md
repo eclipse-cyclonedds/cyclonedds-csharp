@@ -2,7 +2,7 @@
 
 These are C# ports of **every example** in the Cyclone DDS C++ binding at
 [`c185b86b6b689f8ae30234f583979b049c5dfab3`](https://github.com/eclipse-cyclonedds/cyclonedds-cxx/tree/c185b86b6b689f8ae30234f583979b049c5dfab3/examples).
-They use the shared binding version **11.0.1**. Each C# application selects a role
+They use the shared binding version **11.1.0**. Each C# application selects a role
 with its first argument rather than requiring two separate executables.
 
 | C++ example and roles | C# application | Guide |

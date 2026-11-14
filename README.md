@@ -43,7 +43,7 @@ Replace `DdsHello.csproj` with:
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Org.Eclipse.CycloneDDS" Version="11.0.1" />
+    <PackageReference Include="Org.Eclipse.CycloneDDS" Version="11.1.0" />
     <CycloneDDSIdl Include="Types/**/*.idl" />
   </ItemGroup>
 </Project>
@@ -152,7 +152,7 @@ Its version comes from [VERSION](VERSION). To verify it:
 
 ```sh
 python3 scripts/test-package.py \
-  --package artifacts/packages/Org.Eclipse.CycloneDDS.11.0.1.nupkg \
+  --package artifacts/packages/Org.Eclipse.CycloneDDS.11.1.0.nupkg \
   --build build
 ```
 

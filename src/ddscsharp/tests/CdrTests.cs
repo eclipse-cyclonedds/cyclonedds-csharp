@@ -31,6 +31,8 @@ internal static partial class Program
         [DllImport("cdr_oracle", CallingConvention = CallingConvention.Cdecl)] internal static extern int oracle_decode(int writer, byte[] buffer, uint size, nint sample, [Out] byte[] hash, uint force);
         [DllImport("cdr_oracle", CallingConvention = CallingConvention.Cdecl)] internal static extern void oracle_free(nint buffer);
         [DllImport("cdr_oracle", CallingConvention = CallingConvention.Cdecl)] internal static extern void oracle_fini(nint sample, nint descriptor);
+        [DllImport("cdr_oracle", CallingConvention = CallingConvention.Cdecl)] internal static extern int oracle_entity_parent(int entity);
+        [DllImport("cdr_oracle", CallingConvention = CallingConvention.Cdecl)] internal static extern int oracle_entity_children(int entity, [Out] int[] children, uint capacity);
         internal static int Handle(Entity entity) => (int)typeof(Entity).GetProperty("Handle", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(entity)!;
     }
     private static void RegisterCdrTests()

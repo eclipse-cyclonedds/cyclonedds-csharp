@@ -179,7 +179,13 @@ public sealed class CdrReader
         int expected = Xcdr2 ? extensibility switch { CdrExtensibility.Final => 6, CdrExtensibility.Appendable => 8, _ => 10 } : extensibility == CdrExtensibility.Mutable ? 2 : 0;
         if (encoding != expected) throw new InvalidDataException("CDR encapsulation does not match the topic's extensibility.");
     }
-    internal void Finish() { if (Position != Limit) throw new InvalidDataException("Trailing CDR data."); }
+    internal void Finish(CdrExtensibility extensibility)
+    {
+        // XCDR1 has no DHEADER for appendable types. Only the enclosing sample
+        // boundary lets an older top-level reader skip fields added at the end.
+        if (Position != Limit && (Xcdr2 || extensibility != CdrExtensibility.Appendable))
+            throw new InvalidDataException("Trailing CDR data.");
+    }
     internal void Require(int size) { if (size < 0 || size > Limit - Position) throw new InvalidDataException("Truncated or invalid CDR data."); }
     internal void Align(int size) { int n = (-(Position - Origin)) & (Math.Min(size, Xcdr2 ? 4 : 8) - 1); Require(n); Position += n; }
     public bool IsLittleEndian => littleEndian;
@@ -377,7 +383,11 @@ public sealed class CdrStructCodec<T>(Func<T> create, CdrExtensibility extensibi
         }
         ushort id = reader.Scalar<ushort>(); uint size = reader.Scalar<ushort>();
         uint mid = (uint)(id & 0x3fff); bool mu = (id & 0x4000) != 0;
-        if (mid == 0x3f02) return new(0, 0, false, true);
+        if (mid == 0x3f02)
+        {
+            if (size != 0) throw new InvalidDataException("Invalid XCDR1 parameter-list terminator.");
+            return new(0, 0, false, true);
+        }
         if (mid == 0x3f01) { if (size != 8) throw new InvalidDataException("Invalid extended member header."); uint extended = reader.Scalar<uint>(); mid = extended & 0x0fffffffu; mu = (extended & 0x40000000u) != 0; size = reader.Scalar<uint>(); }
         if (size > int.MaxValue) throw new InvalidDataException("Invalid member length.");
         return new(mid, (int)size, mu, false);

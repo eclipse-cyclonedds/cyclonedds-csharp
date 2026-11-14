@@ -1,6 +1,6 @@
 # Eclipse Cyclone DDS IDL build integration
 
-IDL build support is included in **Org.Eclipse.CycloneDDS 11.0.1**. There is no
+IDL build support is included in **Org.Eclipse.CycloneDDS 11.1.0**. There is no
 separate tools package. The internal `Org.Eclipse.CycloneDDS.BuildTasks` project
 is not packable; its assembly ships under `tools/net9.0` in the main package.
 Requires the .NET 9 SDK or newer. The package includes the native IDL compiler,
@@ -9,7 +9,7 @@ need no CMake, C compiler, separately installed idlc or native type library.
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Org.Eclipse.CycloneDDS" Version="11.0.1" />
+  <PackageReference Include="Org.Eclipse.CycloneDDS" Version="11.1.0" />
   <CycloneDDSIdl Include="Types/**/*.idl" />
 </ItemGroup>
 ```

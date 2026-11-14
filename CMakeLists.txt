@@ -12,7 +12,7 @@ file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" CYCLONEDDS_CSHARP_VERSION LIM
 # Cyclone/idlc pass CRT objects across DLL boundaries; all modules share the CRT.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 project(CycloneDDSCSharp VERSION "${CYCLONEDDS_CSHARP_VERSION}" LANGUAGES C)
-find_package(CycloneDDS 11.0.1 REQUIRED)
+find_package(CycloneDDS 11.1.0 REQUIRED)
 get_target_property(ddsc_library_type CycloneDDS::ddsc TYPE)
 if(ddsc_library_type STREQUAL "STATIC_LIBRARY")
   message(FATAL_ERROR "Cyclone DDS must be built with BUILD_SHARED_LIBS=ON.")
@@ -62,6 +62,10 @@ add_custom_target(managed_tests ALL
 add_test(NAME ddscsharp COMMAND ${CMAKE_COMMAND} -E env
   "CYCLONEDDS_CSHARP_NATIVE=$<TARGET_FILE_DIR:cycloneddscsharp>"
   "${DOTNET_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/ddscsharp/tests/bin/Release/net9.0/Org.Eclipse.CycloneDDS.Tests.dll")
+add_test(NAME ddscsharp_stress COMMAND ${CMAKE_COMMAND} -E env
+  "CYCLONEDDS_CSHARP_NATIVE=$<TARGET_FILE_DIR:cycloneddscsharp>"
+  "${DOTNET_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/ddscsharp/tests/bin/Release/net9.0/Org.Eclipse.CycloneDDS.Tests.dll" Stress)
+set_tests_properties(ddscsharp_stress PROPERTIES TIMEOUT 180 LABELS "stress" RUN_SERIAL TRUE)
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 add_test(NAME idlcsharp COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test-generator.py"
   --build "${CMAKE_BINARY_DIR}" --idlc "$<TARGET_FILE:CycloneDDS::idlc>"

@@ -29,6 +29,36 @@ internal static partial class Program
 
     private static void RegisterAsyncListenerTests()
     {
+        Run("Async.in-flight-listener-with-concurrent-parent-child-dispose", () => Endpoints(Message.TypeSupport, (p, t, w, r) =>
+        {
+            using var release = new ManualResetEventSlim();
+            var entered = Completion<bool>(); var finished = Completion<bool>();
+            using var listener = r.Listen(source =>
+            {
+                try
+                {
+                    var value = source.Take().Single(sample => sample.Info.ValidData);
+                    Equal("in flight", value.Data.text); entered.TrySetResult(true);
+                    if (!release.Wait(TimeSpan.FromSeconds(5))) throw new TimeoutException("Callback was not released.");
+                    True(source.IsDisposed);
+                    Throws<ObjectDisposedException>(() => source.Take());
+                    finished.TrySetResult(true);
+                }
+                catch (Exception error) { entered.TrySetException(error); finished.TrySetException(error); }
+            });
+            try
+            {
+                var available = r.WaitDataAsync(); w.Write(new(7, "in flight", 1));
+                True(Await(available)); True(Await(entered.Task));
+                var pending = r.WaitDataAsync(); True(!pending.IsCompleted);
+                // Deletion must finish while the callback is still blocked outside the entity gate.
+                Task.WhenAll(Task.Run(p.Dispose), Task.Run(r.Dispose), Task.Run(w.Dispose))
+                    .WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+                True(!Await(pending)); True(p.IsDisposed && r.IsDisposed && w.IsDisposed);
+            }
+            finally { release.Set(); }
+            True(Await(finished.Task)); True(listener.LastException is null); True(r.LastListenerException is null);
+        }));
         Run("Async.wait-does-not-consume", () => Endpoints(Message.TypeSupport, (p, t, w, r) =>
         {
             var pending = r.WaitDataAsync(); True(!pending.IsCompleted);

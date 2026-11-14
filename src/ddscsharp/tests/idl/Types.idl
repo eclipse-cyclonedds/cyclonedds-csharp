@@ -66,6 +66,63 @@ module Test {
     @id(3) string text;
     @id(8) sequence<long> numbers;
   };
+  // Independent schema versions: IDs, rather than declaration order, define mutable compatibility.
+  @nested @mutable struct EvolutionChildV1 { @id(1) long count; };
+  @nested @mutable struct EvolutionChildV2 {
+    @id(9) @optional string note;
+    @id(1) long count;
+  };
+  @mutable struct EvolutionV1 {
+    @key @id(0) long id;
+    @id(3) string text;
+    @id(8) sequence<long> retired;
+    @id(12) EvolutionChildV1 child;
+  };
+  @mutable struct EvolutionV2 {
+    @id(12) EvolutionChildV2 child;
+    @id(65537) @optional string added;
+    @id(3) string text;
+    @key @id(0) long id;
+  };
+  @mutable struct EvolutionRequired {
+    @key @id(0) long id;
+    @id(3) string text;
+    @id(12) EvolutionChildV2 child;
+    @id(65537) @must_understand long required;
+  };
+  @appendable struct AppendableV1 { @key long id; string text; };
+  @appendable struct AppendableV2 {
+    @key long id;
+    string text;
+    long count;
+    @optional string note;
+  };
+  // Enum extensibility is independent of the containing struct's extensibility.
+  module EnumOld {
+    @appendable enum StatusCode { READY, @default_literal UNKNOWN };
+    @appendable @bit_bound(8) enum SmallStatusCode { SMALL_READY, @default_literal SMALL_UNKNOWN };
+    @appendable struct Envelope {
+      @key long id;
+      StatusCode state;
+      SmallStatusCode small;
+      sequence<StatusCode> history;
+      sequence<SmallStatusCode> small_history;
+      long marker;
+    };
+  };
+  module EnumNew {
+    @appendable enum StatusCode { READY, @default_literal UNKNOWN, BUSY };
+    @appendable @bit_bound(8) enum SmallStatusCode { SMALL_READY, @default_literal SMALL_UNKNOWN, SMALL_BUSY };
+    @appendable struct Envelope {
+      @key long id;
+      StatusCode state;
+      SmallStatusCode small;
+      sequence<StatusCode> history;
+      sequence<SmallStatusCode> small_history;
+      long marker;
+    };
+  };
+  @appendable struct EnumEnvelopeV0 { @key long id; };
   @final struct Keyless { long value; };
   @final union Choice switch(long) {
     case 1: long number;

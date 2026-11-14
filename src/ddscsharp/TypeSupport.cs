@@ -49,7 +49,7 @@ public sealed class TypeSupport<T> where T : class
         var reader = new CdrReader(data, data.Length);
         reader.CheckEncapsulation(Codec.Extensibility);
         T result = Codec.ReadCdr(reader);
-        reader.Finish();
+        reader.Finish(Codec.Extensibility);
         return result;
     }
     public T Clone(T value)

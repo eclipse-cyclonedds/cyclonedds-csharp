@@ -58,3 +58,8 @@ EXPORT int32_t oracle_decode(dds_entity_t writer, const unsigned char *buffer,
 }
 EXPORT void oracle_free(void *buffer) { dds_free(buffer); }
 EXPORT void oracle_fini(void *sample, const dds_topic_descriptor_t *descriptor) { dds_sample_free(sample, descriptor, DDS_FREE_CONTENTS); }
+/* Query the native runtime independently of managed IsDisposed bookkeeping. */
+EXPORT int32_t oracle_entity_parent(dds_entity_t entity) { return dds_get_parent(entity); }
+EXPORT int32_t oracle_entity_children(dds_entity_t entity, dds_entity_t *children, uint32_t capacity) {
+  return dds_get_children(entity, children, capacity);
+}
