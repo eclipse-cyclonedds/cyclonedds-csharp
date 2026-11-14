@@ -19,7 +19,7 @@ dotnet add package Org.Eclipse.CycloneDDS
 The package includes the C# API, native runtimes and automatic C# type generation
 from IDL.
 
-Then see [the example](#example) and [the docs](src/buildtools/README.md) to get started.
+Then see [the example](#example) and [the docs](docs/manual/index.rst) to get started.
 
 ## Example
 
@@ -157,8 +157,8 @@ python3 scripts/test-package.py \
 ```
 
 The bootstrap clones Cyclone DDS C `master`, or the matching C tag for a release.
-See [dependency selection](docs/DEPENDENCIES.md) and
-[CI and platform builds](docs/CI.md) for details and multi-platform packaging.
+See [the build guide](docs/manual/building.rst) for dependency selection and packaging
+and [documentation build instructions](docs/how-to-build.md) to preview the manual.
 
 ## Repository structure
 
@@ -176,7 +176,7 @@ See [dependency selection](docs/DEPENDENCIES.md) and
 │   └── 📁 RoundTrip/       # latency measurements
 ├── 📁 cmake/               # CMake integration for type generation
 ├── 📁 scripts/             # dependency setup, builds and package verification
-├── 📁 docs/                # build guides, implementation status and standards
+├── 📁 docs/                # Sphinx documentation (API guide and how-tos)
 ├── 📄 CMakeLists.txt       # native build and test configuration
 ├── 📄 CycloneDDS.sln       # .NET solution
 ├── 📄 VERSION             # package version

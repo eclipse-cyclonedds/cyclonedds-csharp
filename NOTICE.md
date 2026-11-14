@@ -9,8 +9,6 @@ The license text was copied without modification from
 The IDL fixtures in `src/ddscsharp/tests/upstream/idl` were copied without
 modification from that revision's `src/ddscxx/tests/data` directory. They retain
 their upstream notices where present and are covered by the upstream license.
-`docs/upstream-tests.json` records upstream test names for coverage tracking;
-it is not a claim that those tests have been ported.
 
 The examples port all three example directories from that same C++ revision.
 Their IDL content is copied unchanged (HelloWorldData.idl is locally named
