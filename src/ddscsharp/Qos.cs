@@ -18,14 +18,23 @@ public enum LivelinessKind { Automatic, ManualByParticipant, ManualByTopic }
 public enum OwnershipKind { Shared, Exclusive }
 public enum DestinationOrderKind { ByReceptionTimestamp, BySourceTimestamp }
 public enum DataRepresentationKind : short { Xcdr1 = 0, Xcdr2 = 2 }
+public enum PresentationAccessScopeKind { Instance, Topic, Group }
+public enum IgnoreLocalKind { None, Participant, Process }
+public enum TypeConsistencyKind { DisallowTypeCoercion, AllowTypeCoercion }
 public sealed record Reliability(ReliabilityKind Kind, Duration MaxBlockingTime);
 public sealed record History(HistoryKind Kind, int Depth = 1);
 public sealed record ResourceLimits(int MaxSamples = -1, int MaxInstances = -1, int MaxSamplesPerInstance = -1);
 public sealed record Liveliness(LivelinessKind Kind, Duration LeaseDuration);
 public sealed record ReaderDataLifecycle(Duration AutopurgeNoWriterSamplesDelay, Duration AutopurgeDisposedSamplesDelay);
+public sealed record Presentation(PresentationAccessScopeKind AccessScope, bool CoherentAccess = false, bool OrderedAccess = false);
+public sealed record DurabilityService(Duration ServiceCleanupDelay, History History, ResourceLimits ResourceLimits);
+public sealed record TypeConsistency(TypeConsistencyKind Kind, bool IgnoreSequenceBounds = true, bool IgnoreStringBounds = true,
+    bool IgnoreMemberNames = false, bool PreventTypeWidening = false, bool ForceTypeValidation = false);
+public sealed record Property(string Name, string Value, bool Propagate = false);
+public sealed record BinaryProperty(string Name, byte[] Value, bool Propagate = false);
 
 /// <summary>Policies omitted from this value use the Cyclone DDS defaults.</summary>
-public sealed record Qos
+public sealed partial record Qos
 {
     public Reliability? Reliability { get; init; }
     public bool? WriterBatching { get; init; }
@@ -47,21 +56,71 @@ public sealed record Qos
     public byte[]? TopicData { get; init; }
     public byte[]? GroupData { get; init; }
     public IReadOnlyList<DataRepresentationKind>? DataRepresentation { get; init; }
+    public Presentation? Presentation { get; init; }
+    public Duration? TimeBasedFilter { get; init; }
+    public DurabilityService? DurabilityService { get; init; }
+    public IgnoreLocalKind? IgnoreLocal { get; init; }
+    public IReadOnlyList<Property>? Properties { get; init; }
+    public IReadOnlyList<BinaryProperty>? BinaryProperties { get; init; }
+    public TypeConsistency? TypeConsistency { get; init; }
+    public string? EntityName { get; init; }
+    public IReadOnlyList<string>? PsmxInstances { get; init; }
 
     internal QosHandle ToNative()
     {
-        if (History is { Kind: HistoryKind.KeepLast, Depth: <= 0 })
-            throw new ArgumentOutOfRangeException(nameof(History));
-        if (ResourceLimits is { } limits)
-        {
-            static bool Invalid(int n) => n == 0 || n < -1;
-            if (Invalid(limits.MaxSamples) || Invalid(limits.MaxInstances) || Invalid(limits.MaxSamplesPerInstance))
-                throw new ArgumentOutOfRangeException(nameof(ResourceLimits));
-        }
+        if (History is { } history) ValidateHistory(history, nameof(History));
+        if (ResourceLimits is { } limits) ValidateLimits(limits, nameof(ResourceLimits));
         var q = new QosHandle();
         try
         {
             var p = q.DangerousGetHandle();
+            if (Presentation is { } presentation)
+            {
+                Validate(presentation.AccessScope);
+                Native.dds_qset_presentation(p, presentation.AccessScope, presentation.CoherentAccess, presentation.OrderedAccess);
+            }
+            if (TimeBasedFilter is { } filter) Native.dds_qset_time_based_filter(p, filter.Nanoseconds);
+            if (DurabilityService is { } service)
+            {
+                ArgumentNullException.ThrowIfNull(service.History);
+                ArgumentNullException.ThrowIfNull(service.ResourceLimits);
+                Validate(service.History.Kind);
+                ValidateHistory(service.History, nameof(DurabilityService));
+                ValidateLimits(service.ResourceLimits, nameof(DurabilityService));
+                Native.dds_qset_durability_service(p, service.ServiceCleanupDelay.Nanoseconds, service.History.Kind, service.History.Depth,
+                    service.ResourceLimits.MaxSamples, service.ResourceLimits.MaxInstances, service.ResourceLimits.MaxSamplesPerInstance);
+            }
+            if (IgnoreLocal is { } ignore) { Validate(ignore); Native.dds_qset_ignorelocal(p, ignore); }
+            if (TypeConsistency is { } consistency)
+            {
+                Validate(consistency.Kind);
+                Native.dds_qset_type_consistency(p, consistency.Kind, consistency.IgnoreSequenceBounds, consistency.IgnoreStringBounds,
+                    consistency.IgnoreMemberNames, consistency.PreventTypeWidening, consistency.ForceTypeValidation);
+            }
+            if (EntityName is { } name) { ValidateString(name, nameof(EntityName)); Native.dds_qset_entity_name(p, name); }
+            if (Properties is not null || BinaryProperties is not null)
+            {
+                // Set/unset marks an explicitly empty Property policy using only public C APIs.
+                Native.dds_qset_prop_propagate(p, "", "", false);
+                Native.dds_qunset_prop(p, "");
+            }
+            if (Properties is { } properties)
+                foreach (var property in properties)
+                {
+                    ArgumentNullException.ThrowIfNull(property);
+                    ValidateString(property.Name, nameof(Properties));
+                    ValidateString(property.Value, nameof(Properties));
+                    Native.dds_qset_prop_propagate(p, property.Name, property.Value, property.Propagate);
+                }
+            if (BinaryProperties is { } binaryProperties)
+                foreach (var property in binaryProperties)
+                {
+                    ArgumentNullException.ThrowIfNull(property);
+                    ValidateString(property.Name, nameof(BinaryProperties));
+                    ArgumentNullException.ThrowIfNull(property.Value);
+                    Native.dds_qset_bprop_propagate(p, property.Name, property.Value, (nuint)property.Value.Length, property.Propagate);
+                }
+            if (PsmxInstances is { } instances) SetStrings(p, instances, Native.dds_qset_psmx_instances, nameof(PsmxInstances));
             if (DataRepresentation is { } representations)
             {
                 if (representations.Count == 0) throw new ArgumentException("At least one data representation is required.", nameof(DataRepresentation));
@@ -88,20 +147,7 @@ public sealed record Qos
             if (TopicData is { } topic) Native.dds_qset_topicdata(p, topic, (nuint)topic.Length);
             if (GroupData is { } group) Native.dds_qset_groupdata(p, group, (nuint)group.Length);
             if (Partitions is { } partitions)
-            {
-                var strings = new List<nint>();
-                try
-                {
-                    foreach (var value in partitions)
-                    {
-                        ArgumentNullException.ThrowIfNull(value);
-                        if (value.Contains('\0')) throw new ArgumentException("Partitions cannot contain NUL.");
-                        strings.Add(Marshal.StringToCoTaskMemUTF8(value));
-                    }
-                    Native.dds_qset_partition(p, (uint)strings.Count, strings.ToArray());
-                }
-                finally { foreach (var value in strings) Marshal.FreeCoTaskMem(value); }
-            }
+                SetStrings(p, partitions, Native.dds_qset_partition, nameof(Partitions));
             return q;
         }
         catch { q.Dispose(); throw; }
@@ -110,6 +156,39 @@ public sealed record Qos
     private static void Validate<T>(T value) where T : struct, Enum
     {
         if (!Enum.IsDefined(value)) throw new ArgumentOutOfRangeException(nameof(value));
+    }
+
+    private static void ValidateString(string value, string name)
+    {
+        ArgumentNullException.ThrowIfNull(value, name);
+        if (value.Contains('\0')) throw new ArgumentException("Strings cannot contain NUL.", name);
+    }
+
+    private static void ValidateHistory(History value, string name)
+    {
+        if (value.Kind == HistoryKind.KeepLast && value.Depth <= 0) throw new ArgumentOutOfRangeException(name);
+    }
+
+    private static void ValidateLimits(ResourceLimits value, string name)
+    {
+        static bool Invalid(int n) => n == 0 || n < -1;
+        if (Invalid(value.MaxSamples) || Invalid(value.MaxInstances) || Invalid(value.MaxSamplesPerInstance))
+            throw new ArgumentOutOfRangeException(name);
+    }
+
+    private static void SetStrings(nint qos, IReadOnlyList<string> values, Action<nint, uint, nint[]> setter, string name)
+    {
+        var strings = new List<nint>();
+        try
+        {
+            foreach (var value in values)
+            {
+                ValidateString(value, name);
+                strings.Add(Marshal.StringToCoTaskMemUTF8(value));
+            }
+            setter(qos, checked((uint)strings.Count), strings.ToArray());
+        }
+        finally { foreach (var value in strings) Marshal.FreeCoTaskMem(value); }
     }
 }
 

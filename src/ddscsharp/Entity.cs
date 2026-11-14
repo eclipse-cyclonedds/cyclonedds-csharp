@@ -64,7 +64,19 @@ public abstract class Entity : IDisposable
             DdsException.Check(Native.dds_set_qos(Handle, native.DangerousGetHandle()), "SetQos");
         }
     }
-    /// <summary>Reads the actual history, reliability, durability and resource limit policies.</summary>
+    /// <summary>Returns a managed snapshot of all QoS policies exposed by this binding.</summary>
+    public Qos GetQos()
+    {
+        lock (Gate)
+        {
+            using var native = new QosHandle();
+            var pointer = native.DangerousGetHandle();
+            DdsException.Check(Native.dds_get_qos(Handle, pointer), "GetQos");
+            return Qos.FromNative(pointer);
+        }
+    }
+
+    /// <summary>Reads history, reliability, durability and resource limits. Use GetQos for the full snapshot.</summary>
     public Qos GetCoreQos()
     {
         lock (Gate)
