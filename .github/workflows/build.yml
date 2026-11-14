@@ -7,7 +7,7 @@
 # http://www.eclipse.org/org/documents/edl-v10.php.
 #
 # SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
-name: Build, test and package
+name: Build, test, package and publish
 
 on:
   push:
@@ -21,7 +21,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # A newer branch build may replace an older one; a release must finish publishing.
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: '1'
@@ -296,3 +297,46 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 30
+
+  publish:
+    name: Publish verified release to nuget.org
+    needs: [prepare, archive]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: nuget
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
+      NUGET_USER: ${{ vars.NUGET_USER }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 9.0.x
+      - name: Check publishing configuration
+        run: ': "${NUGET_USER:?Set the NUGET_USER variable in the GitHub nuget environment to your nuget.org username.}"'
+      - uses: actions/download-artifact@v8
+        with:
+          name: nuget-candidate
+          path: artifacts/packages
+      - name: Recheck release package identity and platforms
+        run: python3 scripts/verify-package.py --package "artifacts/packages/Org.Eclipse.CycloneDDS.$PACKAGE_VERSION.nupkg" --targets .github/targets.json
+      - name: Authenticate to nuget.org with GitHub OIDC
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ env.NUGET_USER }}
+      - name: Publish the verified package
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: >-
+          dotnet nuget push "artifacts/packages/Org.Eclipse.CycloneDDS.$PACKAGE_VERSION.nupkg"
+          --source https://api.nuget.org/v3/index.json
+          --api-key "$NUGET_API_KEY"
+          --skip-duplicate
