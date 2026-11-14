@@ -244,11 +244,11 @@ public sealed unsafe class StringCodec(int bound = 0) : Codec<string>
     {
         ArgumentNullException.ThrowIfNull(value);
         if (value.Contains('\0')) throw new ArgumentException("IDL strings cannot contain embedded NUL.", nameof(value));
-        var bytes = Utf8.GetBytes(value);
-        if (bound > 0 && bytes.Length > bound) throw new ArgumentOutOfRangeException(nameof(value), $"String exceeds its {bound}-byte IDL bound.");
-        var target = bound > 0 ? pointer : arena.Allocate(checked(bytes.Length + 1));
-        bytes.CopyTo(new Span<byte>((void*)target, bytes.Length));
-        ((byte*)target)[bytes.Length] = 0;
+        var byteCount = Utf8.GetByteCount(value);
+        if (bound > 0 && byteCount > bound) throw new ArgumentOutOfRangeException(nameof(value), $"String exceeds its {bound}-byte IDL bound.");
+        var target = bound > 0 ? pointer : arena.Allocate(checked(byteCount + 1));
+        Utf8.GetBytes(value.AsSpan(), new Span<byte>((void*)target, byteCount));
+        ((byte*)target)[byteCount] = 0;
         if (bound == 0) Marshal.WriteIntPtr(pointer, target);
     }
 }
@@ -267,20 +267,25 @@ public sealed class SequenceCodec<T>(Codec<T> element, int bound = 0) : Codec<IS
             CollectionsMarshal.SetCount(result, count);
             bulk.CopyFromNative(buffer, CollectionsMarshal.AsSpan(result));
         }
-        else
-            for (int i = 0; i < count; i++) result.Add(element.Read(buffer + checked(i * element.Size)));
+        else if (count != 0)
+        {
+            // Resolve deferred codecs only when used, and once for this operation.
+            var elementSize = element.Size;
+            for (int i = 0; i < count; i++) result.Add(element.Read(buffer + checked(i * elementSize)));
+        }
         return result;
     }
     public override void Write(nint pointer, ISequence<T> value, NativeArena arena)
     {
         ArgumentNullException.ThrowIfNull(value);
         if (bound > 0 && value.Count > bound) throw new ArgumentOutOfRangeException(nameof(value), $"Sequence exceeds its {bound}-element IDL bound.");
-        var buffer = value.Count == 0 ? 0 : arena.Allocate(checked(value.Count * element.Size));
+        var elementSize = value.Count == 0 ? 0 : element.Size;
+        var buffer = value.Count == 0 ? 0 : arena.Allocate(checked(value.Count * elementSize));
         // Other ISequence implementations may define their own indexer semantics.
         if (bulk is not null && value is Sequence<T> sequence)
             bulk.CopyToNative(CollectionsMarshal.AsSpan(sequence), buffer);
         else
-            for (int i = 0; i < value.Count; i++) element.Write(buffer + checked(i * element.Size), value[i], arena);
+            for (int i = 0; i < value.Count; i++) element.Write(buffer + checked(i * elementSize), value[i], arena);
         Native.cs_sequence_set(pointer, (uint)value.Count, buffer);
     }
 }
@@ -292,20 +297,33 @@ public sealed class ArrayCodec<TArray, TElement>(Codec<TElement> element, params
     public override TArray Read(nint pointer)
     {
         var result = Array.CreateInstance(typeof(TElement), dimensions);
-        for (int i = 0; i < count; i++) result.SetValue(element.Read(pointer + checked(i * element.Size)), Indices(i));
+        if (count == 0) return (TArray)(object)result;
+        // Keep traversal state local: the same codec can serve concurrent readers.
+        var indices = new int[dimensions.Length];
+        var elementSize = element.Size;
+        for (int i = 0; i < count; i++)
+        {
+            Indices(i, indices);
+            result.SetValue(element.Read(pointer + checked(i * elementSize)), indices);
+        }
         return (TArray)(object)result;
     }
     public override void Write(nint pointer, TArray value, NativeArena arena)
     {
         Validate(value, dimensions);
+        if (count == 0) return;
         var array = (Array)(object)value;
-        for (int i = 0; i < count; i++) element.Write(pointer + checked(i * element.Size), (TElement)array.GetValue(Indices(i))!, arena);
+        var indices = new int[dimensions.Length];
+        var elementSize = element.Size;
+        for (int i = 0; i < count; i++)
+        {
+            Indices(i, indices);
+            element.Write(pointer + checked(i * elementSize), (TElement)array.GetValue(indices)!, arena);
+        }
     }
-    private int[] Indices(int index)
+    private void Indices(int index, int[] result)
     {
-        var result = new int[dimensions.Length];
         for (int i = dimensions.Length - 1; i >= 0; i--) { result[i] = index % dimensions[i]; index /= dimensions[i]; }
-        return result;
     }
     public static void Validate(TArray value, params int[] shape)
     {
