@@ -12,6 +12,9 @@ namespace Org.Eclipse.CycloneDDS;
 public sealed partial class DataWriter<T> : Entity where T : class
 {
     public Topic<T> Topic { get; }
+    private DataRepresentationKind? representation;
+    // A bounded hint avoids repeated growth without retaining a buffer on the entity.
+    private int cdrCapacity = 256;
     internal DataWriter(Entity parent, Topic<T> topic, Qos? qos) : base(parent, () =>
     {
         parent.RequireParticipant(topic);
@@ -36,14 +39,39 @@ public sealed partial class DataWriter<T> : Entity where T : class
             return action(pointer);
         }
     }
-    public void Write(T sample) => WithSample(sample, p => DdsException.Check(Native.dds_write(Handle, p), "Write"));
+    private bool TryWriteSerialized(T sample, long timestamp, uint statusInfo)
+    {
+        ArgumentNullException.ThrowIfNull(sample);
+        lock (Gate)
+        {
+            _ = Handle;
+            if (!Topic.Support.Codec.HasCdr) return false;
+            var encoding = representation ??= GetQos().DataRepresentation![0];
+            using var stream = new CdrWriter(encoding, Topic.Support.Codec.Extensibility, cdrCapacity);
+            Topic.Support.Codec.WriteCdr(stream, sample);
+            cdrCapacity = Math.Clamp(stream.Length, 256, 1024 * 1024);
+            DdsException.Check(Native.cs_write_cdr(Handle, stream.Buffer, checked((uint)stream.Length), timestamp, statusInfo), "WriteSerialized");
+            return true;
+        }
+    }
+    public void Write(T sample)
+    {
+        if (!TryWriteSerialized(sample, -1, 0)) WithSample(sample, p => DdsException.Check(Native.dds_write(Handle, p), "Write"));
+    }
     /// <summary>Flushes pending samples when writer batching is enabled.</summary>
     public void Flush()
     {
         lock (Gate) DdsException.Check(Native.dds_write_flush(Handle), "Flush");
     }
-    public void Write(T sample, Timestamp timestamp) => WithSample(sample, p => DdsException.Check(Native.dds_write_ts(Handle, p, timestamp.Nanoseconds), "WriteTimestamped"));
-    public void WriteDispose(T sample) => WithSample(sample, p => DdsException.Check(Native.dds_writedispose(Handle, p), "WriteDispose"));
+    public void Write(T sample, Timestamp timestamp)
+    {
+        if (timestamp.Nanoseconds < 0) DdsException.Check(-3, "WriteTimestamped");
+        if (!TryWriteSerialized(sample, timestamp.Nanoseconds, 0)) WithSample(sample, p => DdsException.Check(Native.dds_write_ts(Handle, p, timestamp.Nanoseconds), "WriteTimestamped"));
+    }
+    public void WriteDispose(T sample)
+    {
+        if (!TryWriteSerialized(sample, -1, 1)) WithSample(sample, p => DdsException.Check(Native.dds_writedispose(Handle, p), "WriteDispose"));
+    }
     public void DisposeInstance(T key) => WithSample(key, p => DdsException.Check(Native.dds_dispose(Handle, p), "DisposeInstance"));
     public void DisposeInstance(ulong handle)
     {

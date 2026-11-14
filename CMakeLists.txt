@@ -52,10 +52,13 @@ add_custom_command(OUTPUT "${test_types_OUTPUT_DIR}/Types.c" "${test_types_OUTPU
 add_executable(c_interop src/native/tests/interop.c "${test_types_OUTPUT_DIR}/Types.c")
 target_include_directories(c_interop PRIVATE "${test_types_OUTPUT_DIR}")
 target_link_libraries(c_interop PRIVATE CycloneDDS::ddsc)
+add_library(cdr_oracle SHARED src/native/tests/cdr_oracle.c)
+target_include_directories(cdr_oracle PRIVATE "${CYCLONEDDS_SOURCE_DIR}/src/core/ddsc/src")
+target_link_libraries(cdr_oracle PRIVATE CycloneDDS::ddsc)
 add_custom_target(managed_tests ALL
   COMMAND "${DOTNET_EXECUTABLE}" build "${CMAKE_CURRENT_SOURCE_DIR}/src/ddscsharp/tests/Org.Eclipse.CycloneDDS.Tests.csproj"
     --configuration Release --nologo -p:Platform=AnyCPU "-p:DdsGeneratedDirectory=${test_types_OUTPUT_DIR}"
-  DEPENDS test_types cycloneddscsharp c_interop VERBATIM)
+  DEPENDS test_types cycloneddscsharp c_interop cdr_oracle VERBATIM)
 add_test(NAME ddscsharp COMMAND ${CMAKE_COMMAND} -E env
   "CYCLONEDDS_CSHARP_NATIVE=$<TARGET_FILE_DIR:cycloneddscsharp>"
   "${DOTNET_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/src/ddscsharp/tests/bin/Release/net9.0/Org.Eclipse.CycloneDDS.Tests.dll")

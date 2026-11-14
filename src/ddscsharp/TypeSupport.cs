@@ -14,7 +14,7 @@ using Omg.Types;
 
 namespace Org.Eclipse.CycloneDDS;
 
-/// <summary>Generated type metadata and marshalling. Serialization on the wire is performed by Cyclone DDS.</summary>
+/// <summary>Generated type metadata, managed wire serialization and native compatibility marshalling.</summary>
 public sealed class TypeSupport<T> where T : class
 {
     private readonly nint descriptor;
@@ -34,6 +34,23 @@ public sealed class TypeSupport<T> where T : class
     internal nint ResolveDescriptor(int participant) => metadata?.ResolveDescriptor(participant) ?? descriptor;
     public Codec<T> Codec { get; }
     public T Create() => create();
+    /// <summary>Encodes a sample with its DDS encapsulation header.</summary>
+    public byte[] Serialize(T value, DataRepresentationKind representation = DataRepresentationKind.Xcdr2)
+    {
+        using var writer = new CdrWriter(representation, Codec.Extensibility);
+        Codec.WriteCdr(writer, value);
+        return writer.ToArray();
+    }
+    /// <summary>Decodes an encapsulated XCDR1 or XCDR2 sample.</summary>
+    public T Deserialize(byte[] data)
+    {
+        ArgumentNullException.ThrowIfNull(data);
+        var reader = new CdrReader(data, data.Length);
+        reader.CheckEncapsulation(Codec.Extensibility);
+        T result = Codec.ReadCdr(reader);
+        reader.Finish();
+        return result;
+    }
     public T Clone(T value)
     {
         using var arena = new NativeArena();
@@ -75,6 +92,25 @@ public sealed unsafe class NativeArena : IDisposable
 
 public abstract class Codec<T>
 {
+    private CdrCodec<T>? cdr;
+    public Codec<T> WithCdr(CdrCodec<T> codec)
+    {
+        ArgumentNullException.ThrowIfNull(codec);
+        if (Interlocked.CompareExchange(ref cdr, codec, null) is not null) throw new InvalidOperationException("The CDR codec is already configured.");
+        return this;
+    }
+    internal virtual bool HasCdr => cdr is not null;
+    internal virtual bool Primitive => cdr?.Primitive ?? false;
+    internal virtual CdrExtensibility Extensibility => cdr?.Extensibility ?? CdrExtensibility.Final;
+    public virtual void WriteCdr(CdrWriter writer, T value) => (cdr ?? throw new NotSupportedException("This custom codec has no CDR serializer.")).Write(writer, value);
+    internal virtual T ReadCdrInto(CdrReader reader, T value) => (cdr ?? throw new NotSupportedException("This custom codec has no CDR serializer.")).ReadInto(reader, value);
+    /// <summary>Decodes into an existing, independently owned child of a new result.</summary>
+    public T ReadCdr(CdrReader reader, T value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        return ReadCdrInto(reader, value);
+    }
+    public virtual T ReadCdr(CdrReader reader) => (cdr ?? throw new NotSupportedException("This custom codec has no CDR serializer.")).Read(reader);
     public abstract int Size { get; }
     public abstract T Read(nint pointer);
     public abstract void Write(nint pointer, T value, NativeArena arena);
@@ -92,6 +128,11 @@ internal interface IBlittableCodec<T>
 
 public sealed class DeferredCodec<T>(Func<Codec<T>> resolve) : Codec<T>
 {
+    internal override bool HasCdr => resolve().HasCdr;
+    internal override CdrExtensibility Extensibility => resolve().Extensibility;
+    public override void WriteCdr(CdrWriter writer, T value) => resolve().WriteCdr(writer, value);
+    public override T ReadCdr(CdrReader reader) => resolve().ReadCdr(reader);
+    internal override T ReadCdrInto(CdrReader reader, T value) => resolve().ReadCdrInto(reader, value);
     public override int Size => resolve().Size;
     public override T Read(nint pointer) => resolve().Read(pointer);
     internal override T ReadInto(nint pointer, T value) => resolve().ReadInto(pointer, value);
@@ -169,6 +210,10 @@ public static unsafe class Codecs
     }
     private sealed class BlittableCodec<T> : Codec<T>, IBlittableCodec<T> where T : unmanaged
     {
+        internal override bool HasCdr => true;
+        internal override bool Primitive => true;
+        public override void WriteCdr(CdrWriter writer, T value) => writer.Scalar(value);
+        public override T ReadCdr(CdrReader reader) => reader.Scalar<T>();
         public override int Size => sizeof(T);
         public override T Read(nint pointer) => *(T*)pointer;
         public override void Write(nint pointer, T value, NativeArena arena) => *(T*)pointer = value;
@@ -187,21 +232,25 @@ public static unsafe class Codecs
     public static Codec<ulong> UInt64 { get; } = new BlittableCodec<ulong>();
     public static Codec<float> Float32 { get; } = new BlittableCodec<float>();
     public static Codec<double> Float64 { get; } = new BlittableCodec<double>();
-    public static Codec<bool> Boolean { get; } = new DelegateCodec<bool>(1, p => *(byte*)p != 0, (p, v, _) => *(byte*)p = v ? (byte)1 : (byte)0);
+    public static Codec<bool> Boolean { get; } = new DelegateCodec<bool>(1, p => *(byte*)p != 0, (p, v, _) => *(byte*)p = v ? (byte)1 : (byte)0).WithCdr(new CdrBooleanCodec());
     public static Codec<char> Char { get; } = new DelegateCodec<char>(1, p => (char)*(byte*)p, (p, v, _) =>
     {
         if (v > 255) throw new ArgumentOutOfRangeException(nameof(v), "IDL char is an 8-bit value.");
         *(byte*)p = (byte)v;
-    });
-    public static Codec<T> Enum<T>() where T : struct, Enum => new DelegateCodec<T>(4,
-        p => (T)System.Enum.ToObject(typeof(T), *(int*)p), (p, v, _) => *(int*)p = Convert.ToInt32(v));
+    }).WithCdr(new CdrCharCodec());
+    public static Codec<T> Enum<T>() where T : struct, Enum => Enum<T>(32);
+    public static Codec<T> Enum<T>(int bitBound) where T : struct, Enum => new DelegateCodec<T>(4,
+        p => (T)System.Enum.ToObject(typeof(T), *(int*)p), (p, v, _) => *(int*)p = Convert.ToInt32(v)).WithCdr(new CdrEnumCodec<T>(bitBound));
     public static Codec<T> Bitmask<T>(int size) where T : struct, Enum => new DelegateCodec<T>(size,
         p => (T)System.Enum.ToObject(typeof(T), size switch { 1 => *(byte*)p, 2 => *(ushort*)p, 4 => *(uint*)p, 8 => *(ulong*)p, _ => throw new ArgumentOutOfRangeException(nameof(size)) }),
-        (p, v, _) => { ulong n = Convert.ToUInt64(v); switch (size) { case 1: *(byte*)p = checked((byte)n); break; case 2: *(ushort*)p = checked((ushort)n); break; case 4: *(uint*)p = checked((uint)n); break; case 8: *(ulong*)p = n; break; default: throw new ArgumentOutOfRangeException(nameof(size)); } });
+        (p, v, _) => { ulong n = Convert.ToUInt64(v); switch (size) { case 1: *(byte*)p = checked((byte)n); break; case 2: *(ushort*)p = checked((ushort)n); break; case 4: *(uint*)p = checked((uint)n); break; case 8: *(ulong*)p = n; break; default: throw new ArgumentOutOfRangeException(nameof(size)); } }).WithCdr(new CdrEnumCodec<T>(size * 8, true));
 }
 
 public sealed class OptionalReferenceCodec<T>(Codec<T> element, bool directPointer = false) : Codec<T?> where T : class
 {
+    internal override bool HasCdr => element.HasCdr;
+    public override void WriteCdr(CdrWriter writer, T? value) => element.WriteCdr(writer, value!);
+    public override T? ReadCdr(CdrReader reader) => element.ReadCdr(reader);
     public override int Size => nint.Size;
     public override T? Read(nint pointer)
     {
@@ -220,6 +269,9 @@ public sealed class OptionalReferenceCodec<T>(Codec<T> element, bool directPoint
 
 public sealed class OptionalValueCodec<T>(Codec<T> element) : Codec<T?> where T : struct
 {
+    internal override bool HasCdr => element.HasCdr;
+    public override void WriteCdr(CdrWriter writer, T? value) => element.WriteCdr(writer, value!.Value);
+    public override T? ReadCdr(CdrReader reader) => element.ReadCdr(reader);
     public override int Size => nint.Size;
     public override T? Read(nint pointer)
     {
@@ -237,6 +289,9 @@ public sealed class OptionalValueCodec<T>(Codec<T> element) : Codec<T?> where T 
 
 public sealed unsafe class StringCodec(int bound = 0) : Codec<string>
 {
+    internal override bool HasCdr => true;
+    public override void WriteCdr(CdrWriter writer, string value) => writer.String(value, bound);
+    public override string ReadCdr(CdrReader reader) => reader.String(bound);
     private static readonly UTF8Encoding Utf8 = new(false, true);
     public override int Size => bound > 0 ? checked(bound + 1) : nint.Size;
     public override string Read(nint pointer) => Marshal.PtrToStringUTF8(bound > 0 ? pointer : Marshal.ReadIntPtr(pointer)) ?? string.Empty;
@@ -255,6 +310,29 @@ public sealed unsafe class StringCodec(int bound = 0) : Codec<string>
 
 public sealed class SequenceCodec<T>(Codec<T> element, int bound = 0) : Codec<ISequence<T>>
 {
+    internal override bool HasCdr => element.HasCdr;
+    public override void WriteCdr(CdrWriter writer, ISequence<T> value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (bound > 0 && value.Count > bound) throw new ArgumentOutOfRangeException(nameof(value));
+        writer.Enter(value);
+        try
+        {
+            int end = writer.BeginCollection(element.Primitive);
+            writer.Scalar(checked((uint)value.Count));
+            for (int i = 0; i < value.Count; i++) element.WriteCdr(writer, value[i]);
+            writer.EndDelimited(end);
+        }
+        finally { writer.Leave(value); }
+    }
+    public override ISequence<T> ReadCdr(CdrReader reader)
+    {
+        using var scope = reader.Collection(element.Primitive);
+        int count = reader.Count(bound);
+        var result = new Sequence<T> { Capacity = count };
+        for (int i = 0; i < count; i++) result.Add(element.ReadCdr(reader));
+        return result;
+    }
     private readonly IBlittableCodec<T>? bulk = element as IBlittableCodec<T>;
     public override int Size => checked((int)Native.cs_sequence_size());
     public override ISequence<T> Read(nint pointer)
@@ -292,6 +370,27 @@ public sealed class SequenceCodec<T>(Codec<T> element, int bound = 0) : Codec<IS
 
 public sealed class ArrayCodec<TArray, TElement>(Codec<TElement> element, params int[] dimensions) : Codec<TArray> where TArray : class
 {
+    internal override bool HasCdr => element.HasCdr;
+    public override void WriteCdr(CdrWriter writer, TArray value)
+    {
+        Validate(value, dimensions);
+        writer.Enter(value);
+        try
+        {
+            int end = writer.BeginCollection(element.Primitive);
+            foreach (TElement item in (Array)(object)value) element.WriteCdr(writer, item);
+            writer.EndDelimited(end);
+        }
+        finally { writer.Leave(value); }
+    }
+    public override TArray ReadCdr(CdrReader reader)
+    {
+        using var scope = reader.Collection(element.Primitive);
+        var result = Array.CreateInstance(typeof(TElement), dimensions);
+        var indices = new int[dimensions.Length];
+        for (int i = 0; i < count; i++) { Indices(i, indices); result.SetValue(element.ReadCdr(reader), indices); }
+        return (TArray)(object)result;
+    }
     private readonly int count = dimensions.Aggregate(1, checked((a, b) => a * b));
     public override int Size => checked(count * element.Size);
     public override TArray Read(nint pointer)

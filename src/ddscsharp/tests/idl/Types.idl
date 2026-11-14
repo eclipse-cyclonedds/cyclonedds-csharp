@@ -84,10 +84,53 @@ module Test {
     case TRUE: long yes;
     case FALSE: long no;
   };
+  @bit_bound(8) enum SmallEnum { SMALL_ZERO, SMALL_ONE };
+  @final struct WireCollections {
+    @key long id;
+    sequence<boolean> flags;
+    sequence<char> chars;
+    sequence<SmallEnum> enums;
+    SmallEnum enum_array[3];
+    sequence<Permissions> masks;
+    sequence<sequence<Point> > groups;
+  };
+  @nested @final struct NestedKey {
+    @key string name;
+    @key long long number;
+    string ignored;
+  };
+  @mutable struct LongKey {
+    @key @id(8) NestedKey key;
+    @key @id(2) long second;
+    @id(5) sequence<Containers> data;
+  };
+  @final union KeyedChoice switch(@key long) {
+    case 1: long number;
+    default: string text;
+  };
+  @mutable union MutableChoice switch(long) {
+    case 1: long number;
+    case 2: string text;
+    default: Point point;
+  };
+  @appendable union AppendableChoice switch(long) {
+    case 1: long number;
+    default: string text;
+  };
+  struct DirectRecursive;
+  @final struct DirectRecursive {
+    @key long id;
+    sequence<DirectRecursive> children;
+  };
   struct Recursive;
   @mutable struct Recursive {
     @key long id;
     @optional Recursive child;
     sequence<Recursive> children;
+  };
+  @data_representation(XCDR2) @final struct DirectMixed {
+    @key long id;
+    Recursive mutable_value;
+    Optional optional_value;
   };
 };

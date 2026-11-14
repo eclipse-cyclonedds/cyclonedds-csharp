@@ -20,6 +20,10 @@
 #endif
 #include <dds/dds.h>
 #include "dds__entity.h"
+#include "dds__writer.h"
+#include "dds__write.h"
+#include <dds/ddsi/ddsi_endpoint.h>
+#include <dds/ddsi/ddsi_serdata.h>
 #include <dds/ddsi/ddsi_typelib.h>
 #include <dds/ddsi/ddsi_typebuilder.h>
 #include <stdlib.h>
@@ -41,12 +45,13 @@ typedef struct cs_info {
 
 typedef struct cs_batch {
   dds_entity_t reader;
+  bool serialized;
   int32_t count;
   void **samples;
   dds_sample_info_t *infos;
 } cs_batch;
 
-CS_EXPORT uint32_t cs_abi_version(void) { return 1; }
+CS_EXPORT uint32_t cs_abi_version(void) { return 2; }
 /* P/Invoke must use the exact module linked to this bridge. Loading a second
    copy creates two independent DDS runtimes with incompatible entity handles. */
 CS_EXPORT const char *cs_dds_library_path(void) {
@@ -119,7 +124,10 @@ CS_EXPORT const void *cs_batch_get(const cs_batch *b, uint32_t index, cs_info *o
 
 CS_EXPORT int32_t cs_batch_free(cs_batch *b) {
   if (!b) return DDS_RETCODE_OK;
-  int32_t rc = b->count ? dds_return_loan(b->reader, b->samples, b->count) : DDS_RETCODE_OK;
+  int32_t rc = DDS_RETCODE_OK;
+  if (b->serialized) {
+    for (int32_t i = 0; i < b->count; i++) ddsi_serdata_unref(b->samples[i]);
+  } else if (b->count) rc = dds_return_loan(b->reader, b->samples, b->count);
   free(b->samples); free(b->infos); free(b);
   return rc;
 }
@@ -177,4 +185,80 @@ CS_EXPORT int32_t cs_descriptor_create(dds_entity_t participant,
 }
 CS_EXPORT void cs_descriptor_free(dds_topic_descriptor_t *descriptor) {
   if (descriptor) { ddsi_topic_descriptor_fini(descriptor); dds_free(descriptor); }
+}
+
+/* Managed codecs own the payload. Cyclone owns transport, discovery and canonical
+   key extraction/hashing from serialized data, just as for serialized readers. */
+CS_EXPORT int32_t cs_write_cdr(dds_entity_t writer, const unsigned char *buffer,
+    uint32_t size, int64_t timestamp, uint32_t statusinfo) {
+  dds_writer *wr;
+  dds_return_t ret = dds_writer_lock(writer, &wr);
+  if (ret != DDS_RETCODE_OK) return ret;
+  if (size < 4 || !buffer || wr->m_topic->m_filter.mode != DDS_TOPIC_FILTER_NONE) {
+    dds_writer_unlock(wr);
+    return DDS_RETCODE_BAD_PARAMETER;
+  }
+  if (timestamp < 0) timestamp = dds_time();
+  if (!dds_source_timestamp_is_valid_ddsi_time(timestamp, wr->protocol_version)) {
+    dds_writer_unlock(wr);
+    return DDS_RETCODE_BAD_PARAMETER;
+  }
+  ddsrt_iovec_t iov = { .iov_base = (void *)buffer, .iov_len = size };
+  struct ddsi_serdata *data = ddsi_serdata_from_ser_iov(wr->m_wr->type, SDK_DATA, 1, &iov, size);
+  if (!data) ret = DDS_RETCODE_BAD_PARAMETER;
+  else {
+    data->timestamp.v = timestamp;
+    data->statusinfo = statusinfo;
+    /* This function consumes the reference on success and failure. Holding the
+       writer lock avoids the early-return ownership trap in dds_forwardcdr. */
+    ret = dds_writecdr_impl(wr, wr->m_xp, data, !wr->whc_batch);
+  }
+  dds_writer_unlock(wr);
+  return ret;
+}
+
+static dds_return_t cs_collect_cdr(void *arg, const dds_sample_info_t *info,
+    const struct ddsi_sertype *type, struct ddsi_serdata *data) {
+  (void)type;
+  cs_batch *batch = arg;
+  batch->infos[batch->count] = *info;
+  batch->samples[batch->count++] = ddsi_serdata_ref(data);
+  return DDS_RETCODE_OK;
+}
+
+CS_EXPORT int32_t cs_read_cdr(dds_entity_t reader, uint32_t maximum, uint32_t mask,
+    uint32_t take, uint64_t instance, cs_batch **result) {
+  *result = NULL;
+  if (!maximum || maximum > INT32_MAX) return DDS_RETCODE_BAD_PARAMETER;
+  cs_batch *b = calloc(1, sizeof(*b));
+  if (!b) return DDS_RETCODE_OUT_OF_RESOURCES;
+  b->samples = calloc(maximum, sizeof(*b->samples));
+  b->infos = calloc(maximum, sizeof(*b->infos));
+  if (!b->samples || !b->infos) {
+    free(b->samples); free(b->infos); free(b);
+    return DDS_RETCODE_OUT_OF_RESOURCES;
+  }
+  b->serialized = true;
+  dds_return_t ret = take
+    ? dds_take_with_collector(reader, maximum, instance, mask, cs_collect_cdr, b)
+    : dds_read_with_collector(reader, maximum, instance, mask, cs_collect_cdr, b);
+  if (ret < 0) {
+    cs_batch_free(b);
+    return ret;
+  }
+  *result = b;
+  return b->count;
+}
+CS_EXPORT uint32_t cs_cdr_size(const cs_batch *batch, uint32_t index) {
+  if (!batch || !batch->serialized || index >= (uint32_t)batch->count) return 0;
+  return ddsi_serdata_size(batch->samples[index]);
+}
+CS_EXPORT int32_t cs_cdr_copy(const cs_batch *batch, uint32_t index,
+    unsigned char *buffer, uint32_t capacity, uint32_t *key_only) {
+  uint32_t size = cs_cdr_size(batch, index);
+  if (!size || capacity < size) return DDS_RETCODE_BAD_PARAMETER;
+  struct ddsi_serdata *data = batch->samples[index];
+  ddsi_serdata_to_ser(data, 0, size, buffer);
+  *key_only = data->kind == SDK_KEY;
+  return DDS_RETCODE_OK;
 }

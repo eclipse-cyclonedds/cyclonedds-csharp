@@ -7,6 +7,8 @@
 // http://www.eclipse.org/org/documents/edl-v10.php.
 //
 // SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+using System.Buffers;
+
 namespace Org.Eclipse.CycloneDDS;
 
 public sealed partial class DataReader<T> : Entity where T : class
@@ -38,7 +40,11 @@ public sealed partial class DataReader<T> : Entity where T : class
                 throw new ArgumentException("The condition belongs to another reader.", nameof(condition));
             int reader = condition?.Handle ?? Handle;
             condition?.CheckError();
-            int count = DdsException.Check(Native.cs_read(reader, (uint)maximum, state.Mask, take ? 1u : 0u, instance, out var batch), take ? "Take" : "Read");
+            bool serialized = Topic.Support.Codec.HasCdr;
+            nint batch;
+            int count = DdsException.Check(serialized
+                ? Native.cs_read_cdr(reader, (uint)maximum, state.Mask, take ? 1u : 0u, instance, out batch)
+                : Native.cs_read(reader, (uint)maximum, state.Mask, take ? 1u : 0u, instance, out batch), take ? "Take" : "Read");
             try
             {
                 var result = new Sample<T>[count];
@@ -46,7 +52,18 @@ public sealed partial class DataReader<T> : Entity where T : class
                 {
                     var data = Native.cs_batch_get(batch, i, out var info);
                     // For lifecycle notifications only key fields are meaningful.
-                    result[i] = new(Topic.Support.Codec.Read(data), info);
+                    if (serialized)
+                    {
+                        int size = checked((int)Native.cs_cdr_size(batch, i));
+                        var bytes = ArrayPool<byte>.Shared.Rent(size);
+                        try
+                        {
+                            DdsException.Check(Native.cs_cdr_copy(batch, i, bytes, (uint)bytes.Length, out uint keyOnly), "ReadSerialized");
+                            result[i] = new(keyOnly != 0 && size == 4 ? Topic.Support.Create() : Topic.Support.Codec.ReadCdr(new CdrReader(bytes, size, keyOnly != 0)), info);
+                        }
+                        finally { ArrayPool<byte>.Shared.Return(bytes); }
+                    }
+                    else result[i] = new(Topic.Support.Codec.Read(data), info);
                 }
                 return result;
             }

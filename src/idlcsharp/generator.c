@@ -152,7 +152,7 @@ static void codec(FILE *f, const void *type, const idl_declarator_t *decl) {
     codec(f, idl_type_spec(s.base), NULL);
     fprintf(f, ", %"PRIu32")", idl_bound(s.base));
   } else if (idl_is_enum(s.base)) {
-    fputs("global::Org.Eclipse.CycloneDDS.Codecs.Enum<", f); scoped(f, s.base, true); fputs(">()", f);
+    fputs("global::Org.Eclipse.CycloneDDS.Codecs.Enum<", f); scoped(f, s.base, true); fprintf(f, ">(%u)", ((const idl_enum_t *)s.base)->bit_bound.value);
   } else if (idl_is_bitmask(s.base)) {
     const idl_bitmask_t *b = s.base;
     int size = b->bit_bound.value <= 8 ? 1 : b->bit_bound.value <= 16 ? 2 : b->bit_bound.value <= 32 ? 4 : 8;
@@ -208,6 +208,80 @@ static int check_type(generator *g, const void *type, const idl_declarator_t *de
   return unsupported(g, type, "this IDL type is not implemented (wide characters/strings, fixed, long double, map, and interfaces are not supported)");
 }
 
+/* Final, non-optional structs have a fixed member order in both XCDR versions.
+   Keep the metadata codec for key-only reads and all extensible/optional shapes. */
+static bool direct_cdr_struct(const void *node) {
+  if (!idl_is_struct(node)) return false;
+  const idl_struct_t *s = node;
+  if (s->extensibility.value != IDL_FINAL || s->inherit_spec) return false;
+  const idl_member_t *m;
+  IDL_FOREACH(m, s->members) if (m->optional.value || m->external.value) return false;
+  return true;
+}
+
+static bool direct_cdr_field(const shape *s) {
+  return !s->rank && (primitive(s->base, false) || idl_is_string(s->base) || direct_cdr_struct(s->base));
+}
+
+static void emit_direct_cdr_struct(generator *g, const idl_struct_t *s) {
+  FILE *f = g->cs;
+  const char *name = idl_identifier(s);
+  const idl_member_t *m;
+  int index = 0;
+  IDL_FOREACH(m, s->members) {
+    const idl_declarator_t *d;
+    IDL_FOREACH(d, m->declarators) {
+      shape field; (void)get_shape(&field, m->type_spec, d);
+      if (!direct_cdr_field(&field)) {
+        fputs("    private static readonly global::Org.Eclipse.CycloneDDS.Codec<", f);
+        type_name(f, m->type_spec, d);
+        fprintf(f, "> __CdrMember_%d = ", index);
+        codec(f, m->type_spec, d); fputs(";\n", f);
+      }
+      index++;
+    }
+  }
+  fprintf(f, "    public static void __WriteCdr(global::Org.Eclipse.CycloneDDS.CdrWriter stream, @%s value)\n    {\n        using var scope = stream.BeginStructure(value, global::Org.Eclipse.CycloneDDS.CdrExtensibility.Final);\n", name);
+  index = 0;
+  IDL_FOREACH(m, s->members) {
+    const idl_declarator_t *d;
+    IDL_FOREACH(d, m->declarators) {
+      shape field; (void)get_shape(&field, m->type_spec, d);
+      const char *member = member_name(d);
+      if (direct_cdr_field(&field)) {
+        if (primitive(field.base, false))
+          fprintf(f, "        stream.%s(value.@%s);\n", idl_type(field.base) == IDL_BOOL ? "Boolean" : idl_type(field.base) == IDL_CHAR ? "Char" : "Scalar", member);
+        else if (idl_is_string(field.base)) fprintf(f, "        stream.String(value.@%s, %"PRIu32");\n", member, idl_bound(field.base));
+        else { fputs("        ", f); scoped(f, field.base, true); fprintf(f, ".__WriteCdr(stream, value.@%s);\n", member); }
+      } else fprintf(f, "        __CdrMember_%d.WriteCdr(stream, value.@%s);\n", index, member);
+      index++;
+    }
+  }
+  fprintf(f, "    }\n    public static @%s __ReadCdr(global::Org.Eclipse.CycloneDDS.CdrReader stream, @%s? value)\n    {\n        if (stream.KeyOnly) return __Codec.ReadCdr(stream);\n        using var scope = stream.BeginStructure(global::Org.Eclipse.CycloneDDS.CdrExtensibility.Final);\n        if (value is null) value = new @%s();\n", name, name, name);
+  index = 0;
+  IDL_FOREACH(m, s->members) {
+    const idl_declarator_t *d;
+    IDL_FOREACH(d, m->declarators) {
+      shape field; (void)get_shape(&field, m->type_spec, d);
+      const char *member = member_name(d);
+      fprintf(f, "        value.@%s = ", member);
+      if (direct_cdr_field(&field)) {
+        if (primitive(field.base, false)) {
+          if (idl_type(field.base) == IDL_BOOL) fputs("stream.Boolean()", f);
+          else if (idl_type(field.base) == IDL_CHAR) fputs("stream.Char()", f);
+          else { fputs("stream.Scalar<", f); type_name(f, m->type_spec, d); fputs(">()", f); }
+        } else if (idl_is_string(field.base)) fprintf(f, "stream.String(%"PRIu32")", idl_bound(field.base));
+        else { scoped(f, field.base, true); fprintf(f, ".__ReadCdr(stream, value.@%s)", member); }
+      } else if (!field.rank && idl_is_struct(field.base))
+        fprintf(f, "value.@%s is null ? __CdrMember_%d.ReadCdr(stream) : __CdrMember_%d.ReadCdr(stream, value.@%s)", member, index, index, member);
+      else fprintf(f, "__CdrMember_%d.ReadCdr(stream)", index);
+      fputs(";\n", f);
+      index++;
+    }
+  }
+  fputs("        return value;\n    }\n", f);
+}
+
 /* Layout is measured by the C compiler. No C ABI offsets are guessed by managed code. */
 static int emit_struct(generator *g, const idl_struct_t *s) {
   FILE *f = g->cs;
@@ -223,7 +297,7 @@ static int emit_struct(generator *g, const idl_struct_t *s) {
       if (shape.rank && shape.base == s)
         return unsupported(g, d, "recursive arrays cannot be represented by the Cyclone DDS C ABI");
       const char *n = member_name(d);
-      if (!strcmp(n, idl_identifier(s)) || !strcmp(n, "__Codec") || !strcmp(n, "TypeSupport") || !strcmp(n, "Equals") || !strcmp(n, "GetHashCode"))
+      if (!strcmp(n, idl_identifier(s)) || !strcmp(n, "__Codec") || !strcmp(n, "__WriteCdr") || !strcmp(n, "__ReadCdr") || !strncmp(n, "__CdrMember_", 12) || !strcmp(n, "TypeSupport") || !strcmp(n, "Equals") || !strcmp(n, "GetHashCode"))
         return unsupported(g, d, "member name collides with a generated class member");
     }
   }
@@ -293,6 +367,8 @@ static int emit_struct(generator *g, const idl_struct_t *s) {
   }
   fputs("        return hash.ToHashCode();\n    }\n", f);
 
+  bool direct_cdr = direct_cdr_struct(s);
+  if (direct_cdr) emit_direct_cdr_struct(g, s);
   fprintf(f, "    public static global::Org.Eclipse.CycloneDDS.Codec<@%s> __Codec { get; } = new global::Org.Eclipse.CycloneDDS.StructCodec<@%s>(\n        global::__Dds_%s.Library.Size(%d), () => new @%s()", name, name, g->stem, id, name);
   IDL_FOREACH(m, s->members) {
     const idl_declarator_t *d;
@@ -307,6 +383,25 @@ static int emit_struct(generator *g, const idl_struct_t *s) {
       fprintf(f, ", value => value.@%s, (value, field) => value.@%s = field)", member_name(d), member_name(d));
     }
   }
+  fputs(").WithCdr(", f);
+  if (direct_cdr) fprintf(f, "new global::Org.Eclipse.CycloneDDS.GeneratedCdrCodec<@%s>(", name);
+  fprintf(f, "new global::Org.Eclipse.CycloneDDS.CdrStructCodec<@%s>(() => new @%s(), global::Org.Eclipse.CycloneDDS.CdrExtensibility.%s", name, name,
+    s->extensibility.value == IDL_FINAL ? "Final" : s->extensibility.value == IDL_APPENDABLE ? "Appendable" : "Mutable");
+  IDL_FOREACH(m, s->members) {
+    const idl_declarator_t *d;
+    IDL_FOREACH(d, m->declarators) {
+      shape member_shape;
+      (void)get_shape(&member_shape, m->type_spec, d);
+      bool struct_member = !m->optional.value && !member_shape.rank && idl_is_struct(member_shape.base);
+      fprintf(f, ",\n        new global::Org.Eclipse.CycloneDDS.Cdr%sMember<@%s, ", struct_member ? "Struct" : "", name);
+      type_name(f, m->type_spec, d); if (m->optional.value) fputc('?', f);
+      fprintf(f, ">(%"PRIu32", %s, %s, %s, ", d->id.value, m->key.value ? "true" : "false", m->optional.value ? "true" : "false", m->must_understand.value ? "true" : "false");
+      member_codec(f, m, d);
+      fprintf(f, ", value => value.@%s, (value, field) => value.@%s = field)", member_name(d), member_name(d));
+    }
+  }
+  if (direct_cdr) fputs("), __WriteCdr, __ReadCdr)", f);
+  else fputc(')', f);
   fputs(");\n", f);
   if (idl_is_topic(s, g->pstate->keylists)) {
     fprintf(f, "    public static global::Org.Eclipse.CycloneDDS.TypeSupport<@%s> TypeSupport { get; } = new(\"", name);
@@ -473,7 +568,37 @@ static int emit_union(generator *g, const idl_union_t *u) {
     fputs("            if (", f); branch_test(f, u, branch, "discriminator"); fputs(") ", f);
     codec(f, branch->type_spec, branch->declarator); fprintf(f, ".Write(pointer + global::__Dds_%s.Library.Offset(%d, %d), value.__field_%s, arena);\n", g->stem, id, index++, member_name(branch->declarator));
   }
-  fputs("        });\n", f);
+  if (u->extensibility.value == IDL_MUTABLE) {
+    fprintf(f, "        }).WithCdr(new global::Org.Eclipse.CycloneDDS.CdrStructCodec<@%s>(() => new @%s(), global::Org.Eclipse.CycloneDDS.CdrExtensibility.Mutable,\n            new global::Org.Eclipse.CycloneDDS.CdrMember<@%s, ", name, name, name);
+    type_name(f, u->switch_type_spec->type_spec, NULL);
+    fprintf(f, ">(0, %s, false, true, ", u->switch_type_spec->key.value ? "true" : "false");
+    codec(f, u->switch_type_spec->type_spec, NULL);
+    fputs(", value => value.Discriminator, (value, field) => value.Discriminator = field)", f);
+    IDL_FOREACH(branch, u->cases) {
+      fprintf(f, ",\n            new global::Org.Eclipse.CycloneDDS.CdrUnionMember<@%s, ", name);
+      type_name(f, branch->type_spec, branch->declarator);
+      fprintf(f, ">(%"PRIu32", ", branch->declarator->id.value);
+      codec(f, branch->type_spec, branch->declarator);
+      fprintf(f, ", value => value.__field_%s, (value, field) => value.__field_%s = field, value => ", member_name(branch->declarator), member_name(branch->declarator));
+      branch_test(f, u, branch, "value.Discriminator"); fputc(')', f);
+    }
+    fputs("));\n", f);
+  } else {
+    fprintf(f, "        }).WithCdr(new global::Org.Eclipse.CycloneDDS.CdrUnionCodec<@%s>(global::Org.Eclipse.CycloneDDS.CdrExtensibility.%s,\n        (stream, value) =>\n        {\n            var discriminator = value.Discriminator;\n            ", name, u->extensibility.value == IDL_FINAL ? "Final" : "Appendable");
+    codec(f, u->switch_type_spec->type_spec, NULL); fputs(".WriteCdr(stream, discriminator);\n", f);
+    IDL_FOREACH(branch, u->cases) {
+      fputs("            if (", f); branch_test(f, u, branch, "discriminator"); fputs(") ", f);
+      codec(f, branch->type_spec, branch->declarator); fprintf(f, ".WriteCdr(stream, value.__field_%s);\n", member_name(branch->declarator));
+    }
+    fprintf(f, "        },\n        stream =>\n        {\n            var value = new @%s();\n            var discriminator = ", name);
+    codec(f, u->switch_type_spec->type_spec, NULL); fputs(".ReadCdr(stream);\n            value.Discriminator = discriminator;\n", f);
+    if (u->switch_type_spec->key.value) fputs("            if (stream.KeyOnly) return value;\n", f);
+    IDL_FOREACH(branch, u->cases) {
+      fputs("            if (", f); branch_test(f, u, branch, "discriminator"); fprintf(f, ") value.Set%s(", member_name(branch->declarator));
+      codec(f, branch->type_spec, branch->declarator); fputs(".ReadCdr(stream), discriminator);\n", f);
+    }
+    fputs("            return value;\n        }));\n", f);
+  }
   type_support(g, &u->node, id, u->nested.value);
   fputs("}\n\n", f);
   return 0;

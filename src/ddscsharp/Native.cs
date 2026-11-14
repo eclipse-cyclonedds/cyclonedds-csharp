@@ -51,6 +51,10 @@ internal static class Native
     [DllImport(Bridge, CallingConvention = CallingConvention.Cdecl)] internal static extern void cs_listener_free(nint listener);
     [DllImport(Bridge, CallingConvention = CallingConvention.Cdecl)] internal static extern int cs_get_status(int entity, uint kind, out StatusData status);
     [DllImport(Dds, CallingConvention = CallingConvention.Cdecl)] internal static extern void dds_qset_data_representation(nint qos, uint count, short[] values);
+    [DllImport(Bridge, CallingConvention = CallingConvention.Cdecl)] internal static extern int cs_write_cdr(int writer, byte[] data, uint size, long timestamp, uint statusinfo);
+    [DllImport(Bridge, CallingConvention = CallingConvention.Cdecl)] internal static extern int cs_read_cdr(int reader, uint max, uint mask, uint take, ulong instance, out nint batch);
+    [DllImport(Bridge, CallingConvention = CallingConvention.Cdecl)] internal static extern uint cs_cdr_size(nint batch, uint index);
+    [DllImport(Bridge, CallingConvention = CallingConvention.Cdecl)] internal static extern int cs_cdr_copy(nint batch, uint index, [Out] byte[] data, uint capacity, out uint keyOnly);
     internal const string Dds = "ddsc", Bridge = "cycloneddscsharp";
     private static readonly Lazy<nint> BridgeModule = new(() => DdsRuntime.Load(Bridge));
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate nint LibraryPathFunction();
@@ -62,7 +66,7 @@ internal static class Native
     static Native()
     {
         NativeLibrary.SetDllImportResolver(typeof(Native).Assembly, Resolve);
-        if (cs_abi_version() != 1) throw new NotSupportedException("Incompatible Cyclone DDS C# native bridge ABI.");
+        if (cs_abi_version() != 2) throw new NotSupportedException("Incompatible Cyclone DDS C# native bridge ABI.");
     }
     private static nint Resolve(string name, Assembly assembly, DllImportSearchPath? path) =>
         name == Bridge ? BridgeModule.Value : name == Dds ? DdsModule.Value : 0;
