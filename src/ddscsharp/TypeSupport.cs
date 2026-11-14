@@ -80,6 +80,13 @@ public abstract class Codec<T>
     public abstract void Write(nint pointer, T value, NativeArena arena);
 }
 
+// Only codecs whose managed and native representations are identical opt into bulk copying.
+internal interface IBlittableCodec<T>
+{
+    void CopyFromNative(nint source, Span<T> destination);
+    void CopyToNative(ReadOnlySpan<T> source, nint destination);
+}
+
 public sealed class DeferredCodec<T>(Func<Codec<T>> resolve) : Codec<T>
 {
     public override int Size => resolve().Size;
@@ -144,11 +151,15 @@ public static unsafe class Codecs
         codec.Write(p, value, arena);
         return codec.Read(p);
     }
-    private sealed class BlittableCodec<T> : Codec<T> where T : unmanaged
+    private sealed class BlittableCodec<T> : Codec<T>, IBlittableCodec<T> where T : unmanaged
     {
         public override int Size => sizeof(T);
         public override T Read(nint pointer) => *(T*)pointer;
         public override void Write(nint pointer, T value, NativeArena arena) => *(T*)pointer = value;
+        public void CopyFromNative(nint source, Span<T> destination)
+            => new ReadOnlySpan<T>((void*)source, destination.Length).CopyTo(destination);
+        public void CopyToNative(ReadOnlySpan<T> source, nint destination)
+            => source.CopyTo(new Span<T>((void*)destination, source.Length));
     }
     public static Codec<byte> Byte { get; } = new BlittableCodec<byte>();
     public static Codec<sbyte> SByte { get; } = new BlittableCodec<sbyte>();
@@ -228,13 +239,20 @@ public sealed unsafe class StringCodec(int bound = 0) : Codec<string>
 
 public sealed class SequenceCodec<T>(Codec<T> element, int bound = 0) : Codec<ISequence<T>>
 {
+    private readonly IBlittableCodec<T>? bulk = element as IBlittableCodec<T>;
     public override int Size => checked((int)Native.cs_sequence_size());
     public override ISequence<T> Read(nint pointer)
     {
         var count = checked((int)Native.cs_sequence_length(pointer));
         var buffer = Native.cs_sequence_buffer(pointer);
-        ISequence<T> result = new Sequence<T> { Capacity = count };
-        for (int i = 0; i < count; i++) result.Add(element.Read(buffer + checked(i * element.Size)));
+        var result = new Sequence<T> { Capacity = count };
+        if (bulk is not null)
+        {
+            CollectionsMarshal.SetCount(result, count);
+            bulk.CopyFromNative(buffer, CollectionsMarshal.AsSpan(result));
+        }
+        else
+            for (int i = 0; i < count; i++) result.Add(element.Read(buffer + checked(i * element.Size)));
         return result;
     }
     public override void Write(nint pointer, ISequence<T> value, NativeArena arena)
@@ -242,7 +260,11 @@ public sealed class SequenceCodec<T>(Codec<T> element, int bound = 0) : Codec<IS
         ArgumentNullException.ThrowIfNull(value);
         if (bound > 0 && value.Count > bound) throw new ArgumentOutOfRangeException(nameof(value), $"Sequence exceeds its {bound}-element IDL bound.");
         var buffer = value.Count == 0 ? 0 : arena.Allocate(checked(value.Count * element.Size));
-        for (int i = 0; i < value.Count; i++) element.Write(buffer + checked(i * element.Size), value[i], arena);
+        // Other ISequence implementations may define their own indexer semantics.
+        if (bulk is not null && value is Sequence<T> sequence)
+            bulk.CopyToNative(CollectionsMarshal.AsSpan(sequence), buffer);
+        else
+            for (int i = 0; i < value.Count; i++) element.Write(buffer + checked(i * element.Size), value[i], arena);
         Native.cs_sequence_set(pointer, (uint)value.Count, buffer);
     }
 }
