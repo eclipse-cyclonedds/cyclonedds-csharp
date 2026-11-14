@@ -73,7 +73,7 @@ The consumer requires no CMake, C compiler or generated native type libraries.
 Native descriptors are built lazily when a topic is first created. Their safe
 handles release the descriptor after its managed metadata becomes unreachable;
 static generated metadata ordinarily retains them for the assembly lifetime.
-The common bridge uses Cyclone’s pinned internal typelib API, so its binary must
+The common bridge uses Cyclone’s internal typelib API, so its binary must
 match the native runtime revision and build configuration. No internal native
 structure layout is exposed to generated C# or application code.
 

@@ -12,6 +12,7 @@ name: Build, test and package
 on:
   push:
     branches: ['**']
+    tags: ['**']
   pull_request:
   workflow_dispatch:
 
@@ -54,11 +55,16 @@ jobs:
           import json
           import os
           from pathlib import Path
+          version = Path('VERSION').read_text().strip()
+          if os.environ.get('GITHUB_REF_TYPE') == 'tag':
+              tag = os.environ['GITHUB_REF_NAME']
+              if tag.removeprefix('v') != version:
+                  raise SystemExit(f'Release tag {tag} does not match VERSION {version}')
           targets = json.loads(Path('.github/targets.json').read_text())
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               for kind in ('desktop', 'android', 'ios'):
                   print(f'{kind}=' + json.dumps({'include': targets[kind]}, separators=(',', ':')), file=output)
-              print('version=' + Path('VERSION').read_text().strip(), file=output)
+              print('version=' + version, file=output)
 
   desktop:
     name: Build and test ${{ matrix.rid }}
@@ -87,7 +93,7 @@ jobs:
         if: runner.os == 'Windows'
         with:
           arch: ${{ matrix.arch }}
-      - name: Build pinned Cyclone DDS
+      - name: Build selected Cyclone DDS source
         run: bash scripts/bootstrap-native.sh
       - name: Smoke test native IDL compiler
         shell: python

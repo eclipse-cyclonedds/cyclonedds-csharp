@@ -28,7 +28,7 @@ consistent. `GetCoreQos()` intentionally reads only history, reliability,
 durability and resource limits. It is not a full QoS snapshot.
 
 The native ABI bridge isolates sample-information and sequence layouts and the
-pinned native typelib ABI. The generator emits C# exclusively, embedding the
+matching native typelib ABI. The generator emits C# exclusively, embedding the
 compiler’s serialized XTypes TypeInformation and TypeMapping, including keys and
 annotations. C# computes native sample layouts; the bridge validates the total
 size and alignment against the descriptor it constructs with Cyclone’s type

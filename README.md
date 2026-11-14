@@ -1,17 +1,19 @@
-# Cyclone DDS C#
+# C# binding for Eclipse Cyclone DDS
 
-Use [Eclipse Cyclone DDS](https://github.com/eclipse-cyclonedds/cyclonedds) from
-C#: describe your data in IDL, let `dotnet build` generate the C# types, and
+[![Website](https://img.shields.io/badge/web-cyclonedds.io-blue)](https://cyclonedds.io)
+[![Community](https://img.shields.io/badge/discord-join%20community-5865f2)](https://discord.gg/BkRYQPpZVV)
+
+The official C# binding for [Eclipse Cyclone DDS][https://github.com/eclipse-cyclonedds/cyclonedds]. Describe your data in IDL, let `dotnet build` generate the C# types, and
 publish or receive typed DDS samples.
+
+- [Quick Start](#quick-start)
+
+## Quick Start
+
+IDL to a running C# application.
 
 **`Org.Eclipse.CycloneDDS`** includes the managed API, native runtimes, IDL
 compiler and automatic C# generation in one NuGet package.
-
-The package uses version **11.0.1**, aligned with Cyclone DDS C and C++.
-The runtime namespace and assembly are `Org.Eclipse.CycloneDDS` and
-`Org.Eclipse.CycloneDDS.dll`.
-
-## Quick start: IDL to a running C# application
 
 You need the **.NET 9 SDK or newer** and a package containing the compiler tools
 for your build host and native runtime libraries for the machine running your
@@ -208,7 +210,7 @@ used above. Applications consuming the prebuilt package use the normal .NET buil
 
 - .NET SDK 9.0, CMake 3.20 or later, a C11 compiler, and Python 3.9 or later.
 - A shared build of Cyclone DDS 11.0.1 with `idlc` and development headers.
-  The reproducible native revision is recorded in [DEPENDENCIES.md](docs/DEPENDENCIES.md).
+  Source selection follows [DEPENDENCIES.md](docs/DEPENDENCIES.md).
 - Local UDP sockets for the integration tests. No DDS server is required.
 
 The initial verification platform is macOS ARM64. Linux and Windows builds are
@@ -216,7 +218,9 @@ included in CI configuration but are not claimed as verified until that CI runs.
 
 ### Build and test
 
-Build the pinned native dependency, then the binding:
+Build the native dependency, then the binding. Builds without a release tag use
+current Cyclone DDS C `master`; release tags use the matching upstream C tag
+(see [dependency selection](docs/DEPENDENCIES.md)).
 
 ```sh
 bash scripts/bootstrap-native.sh
@@ -228,7 +232,7 @@ ctest --test-dir build --output-on-failure
 ```
 
 If Cyclone DDS is already installed, set `CMAKE_PREFIX_PATH` to that installation
-and set `CYCLONEDDS_SOURCE_DIR` to its matching pinned source tree. The common
+and set `CYCLONEDDS_SOURCE_DIR` to its matching source tree. The common
 bridge uses Cyclone’s internal typelib ABI, isolated in native code.
 `BUILD_TESTING=OFF` disables the test builds and `BUILD_CSHARP_EXAMPLES=OFF`
 disables the examples. For a multi-configuration generator, add `--config Release`

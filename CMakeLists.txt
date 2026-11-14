@@ -29,8 +29,8 @@ elseif(UNIX)
   set(CMAKE_BUILD_RPATH "$ORIGIN")
   set(CMAKE_INSTALL_RPATH "$ORIGIN")
 endif()
-# The bridge uses the pinned typelib implementation to consume idlc's XTypes blobs.
-set(CYCLONEDDS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build/_deps/cyclonedds-src" CACHE PATH "Source tree of the matching pinned Cyclone DDS runtime")
+# The bridge uses the matching typelib implementation to consume idlc's XTypes blobs.
+set(CYCLONEDDS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/build/_deps/cyclonedds-src" CACHE PATH "Source tree of the matching Cyclone DDS runtime")
 if(NOT EXISTS "${CYCLONEDDS_SOURCE_DIR}/src/core/ddsc/src/dds__entity.h")
   message(FATAL_ERROR "Set CYCLONEDDS_SOURCE_DIR to the matching Cyclone DDS source tree (scripts/bootstrap-native.sh provides it).")
 endif()

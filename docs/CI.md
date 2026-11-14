@@ -1,10 +1,13 @@
 # CI and platform builds
 
-[Build, test and package](../.github/workflows/build.yml) runs on pushes to
-`master`, all pull requests, manual dispatches, and temporarily on pushes to
-`main` (the current development branch). Remove `main` from the push filter when
-that temporary coverage is no longer needed. A new run cancels an older run for
-the same branch or pull request.
+[Build, test and package](../.github/workflows/build.yml) runs on pushes to all
+branches and tags, all pull requests, and manual dispatches. A new run cancels an
+older run for the same branch, tag or pull request.
+Release tags (`11.0.1` or `v11.0.1`) must match `VERSION` and use the exact matching
+Cyclone DDS C release tag on every platform. Missing upstream tags fail the build.
+Builds without a release tag clone current Cyclone DDS C `master`.
+Bootstrap requires an absent or empty native source destination and has no update
+logic. See [DEPENDENCIES.md](DEPENDENCIES.md).
 
 The repository's [global.json](../global.json) selects the latest installed stable
 .NET 9.0 SDK feature band. Installing SDK 9 alone does not select it when a runner
@@ -14,7 +17,7 @@ incompatible framework references. This repository SDK selection does not
 change the library/package version.
 
 All native project libraries are shared. Windows builds consistently use the
-shared MSVC CRT (`/MD` in Release, `/MDd` in Debug), including the pinned Cyclone
+shared MSVC CRT (`/MD` in Release, `/MDd` in Debug), including the selected Cyclone
 runtime, `idlc`, the backend and the bridge. The compiler exchanges `FILE*` and
 other CRT objects between DLLs, so giving each module its own statically linked
 CRT is incompatible with this plugin ABI. Release CRT DLLs from the selected
@@ -41,14 +44,13 @@ build environment. Alpine/musl is not in this matrix. Windows uses Windows 2025
 x64 and Windows 11 ARM64; macOS uses macOS 15 Intel and ARM64. Each desktop is
 built and tested natively. Android cross-builds run on Linux with the pinned
 NDK **27.2.12479018**, require Android **9/API 28** or newer, and use these ABIs:
-`arm64-v8a`, `x86_64`, `armeabi-v7a`, and `x86`. API 28 is required by the pinned
-Cyclone DDS thread implementation. The shared libraries use unversioned `.so`
+`arm64-v8a`, `x86_64`, `armeabi-v7a`, and `x86`. API 28 is required by the Cyclone DDS thread implementation. The shared libraries use unversioned `.so`
 filenames/SONAMEs for Android packaging and 16 KB ELF segment alignment.
 
 ## Workflow gates
 
 1. Read the target matrix and the shared [VERSION](../VERSION).
-2. On all six desktop hosts, build the pinned Cyclone DDS runtime, binding and
+2. On all six desktop hosts, build the selected Cyclone DDS runtime, binding and
    C# IDL backend. Run an early native IDL compiler smoke test and CTest (managed/native runtime tests, IDL fixtures and
    separate-process examples), then stage only native runtime/tool payloads.
 3. For each Android ABI and iOS device/simulator RID, build Cyclone DDS and the
@@ -88,7 +90,7 @@ python3 scripts/verify-package.py \
   --stage build/android/android-arm64/binding/package --runtime-rid android-arm64
 ```
 
-The Android script fetches/verifies the pinned Cyclone source through
+The Android script clones the selected Cyclone source through
 `bootstrap-native.sh --source-only`. Build directories are separate per ABI.
 It stages runtime-only files under
 `build/android/<rid>/binding/package/runtimes/<rid>/native`.

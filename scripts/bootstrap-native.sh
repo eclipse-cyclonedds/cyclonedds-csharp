@@ -10,32 +10,34 @@
 # SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
-revision=93cad8bec019e09b68dfe8dec626a9e16983e259
+if [[ $# -gt 1 || ( $# -eq 1 && "$1" != "--source-only" ) ]]; then
+  printf 'Usage: %s [--source-only]\n' "$0" >&2
+  exit 1
+fi
+native_ref=master
+version="$(tr -d '\r\n' < "$repo_dir/VERSION")"
+release_tag=""
+if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+  release_tag="${GITHUB_REF_NAME:?Missing GitHub tag name}"
+elif [[ -z "${GITHUB_REF_TYPE:-}" ]] && ! git -C "$repo_dir" symbolic-ref -q HEAD >/dev/null 2>&1; then
+  # Local builds from a release checkout follow the same policy as CI.
+  release_tag="$(git -C "$repo_dir" describe --tags --exact-match HEAD 2>/dev/null || true)"
+fi
+if [[ -n "$release_tag" ]]; then
+  if [[ "${release_tag#v}" != "$version" ]]; then
+    printf 'Release tag %s does not match VERSION %s.\n' "$release_tag" "$version" >&2
+    exit 1
+  fi
+  native_ref="$version"
+fi
 source_dir="$repo_dir/build/_deps/cyclonedds-src"
 binary_dir="$repo_dir/build/_deps/cyclonedds-build"
 install_dir="$repo_dir/build/_deps/cyclonedds-install"
-if [[ ! -d "$source_dir/.git" ]]; then
-  mkdir -p "$source_dir"
-  git -C "$source_dir" init
-  git -C "$source_dir" remote add origin https://github.com/eclipse-cyclonedds/cyclonedds.git
-  git -C "$source_dir" fetch --depth 1 origin "$revision"
-  git -C "$source_dir" checkout --detach FETCH_HEAD
-fi
-if [[ "$(git -C "$source_dir" rev-parse HEAD)" != "$revision" ]]; then
-  printf '%s\n' "Native source revision differs from the pinned revision: $source_dir" >&2
-  exit 1
-fi
-if [[ -n "$(git -C "$source_dir" status --porcelain)" ]]; then
-  printf '%s\n' "Native source has local modifications: $source_dir" >&2
-  exit 1
-fi
+git clone --depth 1 --branch "$native_ref" \
+  https://github.com/eclipse-cyclonedds/cyclonedds.git "$source_dir"
 if [[ "${1:-}" == "--source-only" ]]; then
-  printf 'Pinned native source: %s\n' "$source_dir"
+  printf 'Native source: %s (%s)\n' "$source_dir" "$native_ref"
   exit 0
-fi
-if [[ $# -gt 0 ]]; then
-  printf 'Usage: %s [--source-only]\n' "$0" >&2
-  exit 1
 fi
 cmake -S "$source_dir" -B "$binary_dir" \
   -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$install_dir" \
