@@ -166,8 +166,10 @@ and [documentation build instructions](docs/how-to-build.md) to preview the manu
 📂 cyclonedds-csharp
 ├── 📁 .github/             # CI workflows and platform matrix
 ├── 📂 src/
-│   ├── 📂 ddscsharp/       # C# API and native bridge
+│   ├── 📂 ddscsharp/       # C# API
 │   │   └── 📁 tests/       # integration tests and upstream IDL fixtures
+│   ├── 📂 native/          # native C bridge
+│   │   └── 📁 tests/       # C interoperability peer
 │   ├── 📁 idlcsharp/       # C# type generator for IDL
 │   └── 📁 buildtools/      # NuGet and MSBuild integration
 ├── 📂 examples/            # runnable publisher/subscriber examples
