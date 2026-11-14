@@ -276,6 +276,7 @@ internal static partial class Program
             for (int i = 0; i < 100; i++) w.Write(new(i, "stress", i));
             WaitUntil(() => Volatile.Read(ref count) == 100); True(listener.LastException is null);
         }));
+        RegisterObjectReuseTests();
         RegisterSequenceCodecTests();
         RegisterAsyncListenerTests();
         Run("Entity.concurrent-parent-close", () =>

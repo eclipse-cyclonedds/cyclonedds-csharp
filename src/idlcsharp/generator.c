@@ -297,7 +297,10 @@ static int emit_struct(generator *g, const idl_struct_t *s) {
   IDL_FOREACH(m, s->members) {
     const idl_declarator_t *d;
     IDL_FOREACH(d, m->declarators) {
-      fprintf(f, ",\n        new global::Org.Eclipse.CycloneDDS.MemberCodec<@%s, ", name);
+      shape member_shape;
+      (void)get_shape(&member_shape, m->type_spec, d);
+      bool struct_member = !m->optional.value && !member_shape.rank && idl_is_struct(member_shape.base);
+      fprintf(f, ",\n        new global::Org.Eclipse.CycloneDDS.%sMemberCodec<@%s, ", struct_member ? "Struct" : "", name);
       type_name(f, m->type_spec, d); if (m->optional.value) fputc('?', f);
       fprintf(f, ">(global::__Dds_%s.Library.Offset(%d, %d), ", g->stem, id, index++);
       member_codec(f, m, d);

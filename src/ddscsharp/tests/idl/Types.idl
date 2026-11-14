@@ -15,6 +15,12 @@ module Test {
   typedef long Identifier;
   typedef double Matrix[2][3];
   @nested struct Point { double x; double y; };
+  @nested struct PointPair { Point first; Point second; };
+  @appendable struct NestedDefaults {
+    @key long id;
+    PointPair pair;
+    @optional Point optional;
+  };
   @final struct Message {
     @key Identifier id;
     string text;

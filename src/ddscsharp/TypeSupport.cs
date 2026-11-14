@@ -78,6 +78,9 @@ public abstract class Codec<T>
     public abstract int Size { get; }
     public abstract T Read(nint pointer);
     public abstract void Write(nint pointer, T value, NativeArena arena);
+    // Generated members may reuse constructor-created children owned by the new result.
+    // Custom codecs retain their normal Read behavior unless implemented here.
+    internal virtual T ReadInto(nint pointer, T value) => Read(pointer);
 }
 
 // Only codecs whose managed and native representations are identical opt into bulk copying.
@@ -91,6 +94,7 @@ public sealed class DeferredCodec<T>(Func<Codec<T>> resolve) : Codec<T>
 {
     public override int Size => resolve().Size;
     public override T Read(nint pointer) => resolve().Read(pointer);
+    internal override T ReadInto(nint pointer, T value) => resolve().ReadInto(pointer, value);
     public override void Write(nint pointer, T value, NativeArena arena) => resolve().Write(pointer, value, arena);
 }
 
@@ -104,12 +108,24 @@ public sealed class MemberCodec<T, TMember>(int offset, Codec<TMember> codec, Fu
     public void Read(nint pointer, T value) => set(value, codec.Read(pointer + offset));
     public void Write(nint pointer, T value, NativeArena arena) => codec.Write(pointer + offset, get(value), arena);
 }
+
+/// <summary>Decodes a generated struct member into its constructor-created, independently owned child.</summary>
+public sealed class StructMemberCodec<T, TMember>(int offset, Codec<TMember> codec, Func<T, TMember> get, Action<T, TMember> set) : IMemberCodec<T> where TMember : class
+{
+    public void Read(nint pointer, T value)
+    {
+        var child = get(value);
+        set(value, child is null ? codec.Read(pointer + offset) : codec.ReadInto(pointer + offset, child));
+    }
+    public void Write(nint pointer, T value, NativeArena arena) => codec.Write(pointer + offset, get(value), arena);
+}
+
 public sealed class StructCodec<T>(int size, Func<T> create, params IMemberCodec<T>[] members) : Codec<T> where T : class
 {
     public override int Size => size;
-    public override T Read(nint pointer)
+    public override T Read(nint pointer) => ReadInto(pointer, create());
+    internal override T ReadInto(nint pointer, T value)
     {
-        var value = create();
         foreach (var member in members) member.Read(pointer, value);
         return value;
     }
