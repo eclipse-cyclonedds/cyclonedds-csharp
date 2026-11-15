@@ -11,7 +11,7 @@ SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>The official C# binding for Eclipse Cyclone DDS.</Description>
+    <Description>The official C# binding for Eclipse Cyclone DDS. Including native runtimes, the IDL compiler and automatic C# generation.</Description>
     <PackageId Condition="'$(PackageId)' == ''">Org.Eclipse.CycloneDDS</PackageId>
     <AssemblyName>Org.Eclipse.CycloneDDS</AssemblyName>
     <RootNamespace>Org.Eclipse.CycloneDDS</RootNamespace>
