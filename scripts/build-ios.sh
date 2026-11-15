@@ -10,13 +10,12 @@
 # SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 set -euo pipefail
 if [[ $# -ne 1 ]]; then
-  printf 'Usage: %s ios-{arm64} | iossimulator-{arm64,x64}\n' "$0" >&2
+  printf 'Usage: %s ios-arm64 | iossimulator-arm64\n' "$0" >&2
   exit 1
 fi
 case "$1" in
   ios-arm64) sdk=iphoneos; arch=arm64 ;;
   iossimulator-arm64) sdk=iphonesimulator; arch=arm64 ;;
-  iossimulator-x64) sdk=iphonesimulator; arch=x86_64 ;;
   *) printf 'Unsupported iOS RID: %s\n' "$1" >&2; exit 1 ;;
 esac
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"

@@ -74,7 +74,7 @@ def verify_binary(path, data, rid):
         if data[:4] != b'\xcf\xfa\xed\xfe':
             raise ValueError(f'{path}: expected a 64-bit Mach-O binary')
         machine = struct.unpack_from('<I', data, 4)[0]
-        expected = {'x64': 0x01000007, 'arm64': 0x0100000c}[arch]
+        expected = {'arm64': 0x0100000c}[arch]
         expected_platform = 1 if rid.startswith('osx-') else 2 if rid.startswith('ios-') else 7
         command_count = struct.unpack_from('<I', data, 16)[0]
         offset = 32

@@ -4,7 +4,6 @@
     { "rid": "linux-arm64", "runner": "ubuntu-24.04-arm", "arch": "arm64" },
     { "rid": "win-x64", "runner": "windows-2025", "arch": "x64" },
     { "rid": "win-arm64", "runner": "windows-11-arm", "arch": "arm64" },
-    { "rid": "osx-x64", "runner": "macos-15-intel", "arch": "x64" },
     { "rid": "osx-arm64", "runner": "macos-15", "arch": "arm64" }
   ],
   "android": [
@@ -15,7 +14,6 @@
   ],
   "ios": [
     { "rid": "ios-arm64" },
-    { "rid": "iossimulator-arm64" },
-    { "rid": "iossimulator-x64" }
+    { "rid": "iossimulator-arm64" }
   ]
 }
