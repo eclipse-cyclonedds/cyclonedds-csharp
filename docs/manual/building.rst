@@ -33,6 +33,3 @@ The bootstrap clones Cyclone DDS C ``master`` for development. A release tag
 (``11.1.0`` or ``v11.1.0``) must match ``VERSION`` and selects the matching C tag.
 The clone destination must be absent or empty; there is no update logic.
 The native bridge must be built against the same C source as its runtime.
-
-The official C tag ``11.1.0`` currently stalls when generating metadata for the
-integration-test ``Types.idl``. Release compatibility with that tag is not verified.
