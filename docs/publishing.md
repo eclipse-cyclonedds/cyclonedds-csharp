@@ -7,8 +7,43 @@ prefixed with `v`, for example `11.1.0` or `v11.1.0`.
 Desktop tests, Android/iOS cross-builds, package assembly, package-consumer tests
 on all desktop targets, and the final archive must succeed before publishing.
 The publish job downloads the verified `nuget-candidate` artifact, rechecks its
-identity/platforms and uploads it without rebuilding. Branch pushes, pull requests
-and manual `workflow_dispatch` runs do not publish.
+identity/platforms and uploads it without rebuilding. Pushes to
+`feature/initial-commit` also publish the separate preview package described below.
+Other branch pushes, pull requests and manual `workflow_dispatch` runs do not publish.
+
+## Test publishing from the development branch
+
+Pushes to `feature/initial-commit` publish **`trittsv.CycloneDDS`**, with a unique
+prerelease version such as `11.1.0-ci.17.1`. The numbers are the GitHub workflow
+run number and run attempt. `VERSION` still controls the base version and native
+build; only the NuGet package identity/version changes. Release tags continue
+to publish `Org.Eclipse.CycloneDDS` with the version in `VERSION`.
+
+The preview passes the same complete build, package validation and desktop
+consumer tests before uploading. Its managed assembly and namespaces remain
+`Org.Eclipse.CycloneDDS`; NuGet's automatically imported `.props`/`.targets`
+filenames follow the selected package ID.
+
+To enable this first test upload:
+
+1. In the existing nuget.org Trusted Publishing policy, add the exact package
+   pattern `trittsv.CycloneDDS` on a separate line. Select **Push new packages and
+   package versions** so the first push can create the package. You can also use
+   a separate policy with the same repository/workflow/environment settings.
+2. In GitHub's `nuget` environment, allow deployments from branch
+   `feature/initial-commit` as well as release tags. Keep `NUGET_USER=trittsv`.
+3. Commit the changes and push that branch. After all tests pass, the workflow
+   uploads the preview automatically, without a release tag or stored API key.
+
+For example, install a successfully published preview with:
+
+```sh
+dotnet add package trittsv.CycloneDDS --version 11.1.0-ci.17.1
+```
+
+Use the actual version shown in the workflow/artifact. This uploads a real public
+prerelease package to nuget.org. Install the preview or the release package in a
+consumer, rather than referencing both together: they contain the same assemblies.
 
 ## One-time nuget.org setup
 
@@ -74,7 +109,7 @@ git push origin v11.1.0
 
 Push the tag only after merging/committing the publishing workflow. Its contents
 are taken from the tagged commit. Wait for the workflow's **Publish verified
-release to nuget.org** job. NuGet may take additional time to validate/index the
+package to nuget.org** job. NuGet may take additional time to validate/index the
 uploaded package before it appears in searches.
 
 To recover from a transient publish failure, rerun the failed jobs in the original

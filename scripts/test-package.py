@@ -25,6 +25,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package", type=Path, required=True)
     parser.add_argument("--build", type=Path, required=True)
+    parser.add_argument("--package-id", default="Org.Eclipse.CycloneDDS")
     args = parser.parse_args()
     package = args.package.resolve()
     with ZipFile(package) as archive:
@@ -33,10 +34,10 @@ def main():
         ns = {"n": "http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd"}
         package_id = xml.findtext("n:metadata/n:id", namespaces=ns)
         version = xml.findtext("n:metadata/n:version", namespaces=ns)
-        if package_id != "Org.Eclipse.CycloneDDS":
+        if package_id != args.package_id:
             raise RuntimeError(f"Unexpected package ID: {package_id}")
-        if f"lib/net9.0/{package_id}.dll" not in archive.namelist():
-            raise RuntimeError("The managed assembly filename must match the package ID.")
+        if "lib/net9.0/Org.Eclipse.CycloneDDS.dll" not in archive.namelist():
+            raise RuntimeError("The managed assembly must retain its stable name.")
         if any(n.rsplit("/", 1)[-1] == "CycloneDDS.dll" for n in archive.namelist()):
             raise RuntimeError("The package contains an obsolete managed assembly.")
         if not any(n.startswith("runtimes/") and "cycloneddscsharp" in n for n in archive.namelist()):
@@ -81,7 +82,7 @@ def main():
 using HelloWorldData;
 if (typeof(DomainParticipant).Assembly.GetName().Name != "Org.Eclipse.CycloneDDS" ||
     typeof(DomainParticipant).Namespace != "Org.Eclipse.CycloneDDS")
-    throw new InvalidOperationException("The managed assembly and namespace must match the NuGet package ID.");
+    throw new InvalidOperationException("The managed assembly and namespace must retain their stable names.");
 using var participant = new DomainParticipant(42);
 using var topic = participant.CreateTopic("PackageSmoke", Msg.TypeSupport);
 var qos = new Qos { Reliability = new(ReliabilityKind.Reliable, Duration.FromSeconds(3)) };
