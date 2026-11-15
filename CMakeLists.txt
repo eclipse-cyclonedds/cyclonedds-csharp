@@ -12,7 +12,7 @@ file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" CYCLONEDDS_CSHARP_VERSION LIM
 # Cyclone/idlc pass CRT objects across DLL boundaries; all modules share the CRT.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 project(CycloneDDSCSharp VERSION "${CYCLONEDDS_CSHARP_VERSION}" LANGUAGES C)
-find_package(CycloneDDS 11.1.0 REQUIRED)
+find_package(CycloneDDS REQUIRED)
 get_target_property(ddsc_library_type CycloneDDS::ddsc TYPE)
 if(ddsc_library_type STREQUAL "STATIC_LIBRARY")
   message(FATAL_ERROR "Cyclone DDS must be built with BUILD_SHARED_LIBS=ON.")

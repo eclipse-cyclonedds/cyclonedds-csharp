@@ -125,9 +125,7 @@ IDL and build again; included files and compiler-option changes are tracked.
 
 Keep generated files under `obj` and out of source control. Include every IDL
 that defines types in `CycloneDDSIdl`, including definition files referenced by
-other IDLs, and use unique IDL basenames within a project. See the
-[IDL build guide](src/buildtools/README.md) for include paths, preprocessor
-definitions and other build options.
+other IDLs, and use unique IDL basenames within a project.
 
 More examples can be found under the folder `examples`.
 

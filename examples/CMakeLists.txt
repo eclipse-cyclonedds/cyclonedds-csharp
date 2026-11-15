@@ -1,4 +1,3 @@
-# Copyright(c) 2020 to 2022 ZettaScale Technology and others
 # Copyright(c) 2026 Sven Trittler
 #
 # This program and the accompanying materials are made available under the
