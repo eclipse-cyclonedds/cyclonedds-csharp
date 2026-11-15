@@ -139,7 +139,7 @@ def verify(files, read, runtime_rids, tool_rids, version, package):
     if package:
         package_id = 'Org.Eclipse.CycloneDDS'
         for path in (f'lib/net9.0/{package_id}.dll', f'build/{package_id}.props', f'build/{package_id}.targets',
-                     f'tools/net9.0/{package_id}.BuildTasks.dll', 'README.md', 'LICENSE', 'NOTICE.md'):
+                     f'tools/net9.0/{package_id}.BuildTasks.dll', 'README.md', 'LICENSE'):
             if path not in files:
                 raise ValueError(f'Missing package file {path}')
         metadata = ElementTree.fromstring(read(f'{package_id}.nuspec'))

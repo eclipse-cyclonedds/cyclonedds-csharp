@@ -188,6 +188,5 @@ the [publishing guide](docs/publishing.md).
 ├── 📄 CycloneDDS.sln       # .NET solution
 ├── 📄 VERSION             # package version
 ├── 📄 LICENSE             # repository licensing terms
-├── 📄 NOTICE.md           # attribution and third-party notices
 └── 📄 README.md           # introduction and getting started
 ```

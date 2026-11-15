@@ -30,7 +30,7 @@ SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
   <ItemGroup>
     <ProjectReference Include="$(BuildTasksProject)" ReferenceOutputAssembly="false" PrivateAssets="all" />
     <None Include="../buildtools/README.md" Pack="true" PackagePath="docs/BUILD.md" />
-    <None Include="../../LICENSE;../../NOTICE.md" Pack="true" PackagePath="/" />
+    <None Include="../../LICENSE" Pack="true" PackagePath="/" />
   </ItemGroup>
   <ItemGroup Condition="'$(NativePackageDirectory)' != ''">
     <None Include="$(NativePackageDirectory)/runtimes/**/*" Pack="true" PackagePath="runtimes/" />
