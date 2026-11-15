@@ -1,0 +1,230 @@
+// Copyright(c) 2026 Sven Trittler
+//
+// This program and the accompanying materials are made available under the
+// terms of the Eclipse Public License v. 2.0 which is available at
+// http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+// v. 1.0 which is available at
+// http://www.eclipse.org/org/documents/edl-v10.php.
+//
+// SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+module Test {
+  const long ARRAY_SIZE = 3;
+  const string GREETING = "Hello, DDS!";
+  enum Color { RED, GREEN, BLUE };
+  @bit_bound(16) bitmask Permissions { READ, WRITE, @position(12) ADMIN };
+  typedef long Identifier;
+  typedef double Matrix[2][3];
+  @nested struct Point { double x; double y; };
+  @nested struct PointPair { Point first; Point second; };
+  @appendable struct NestedDefaults {
+    @key long id;
+    PointPair pair;
+    @optional Point optional;
+  };
+  @final struct Message {
+    @key Identifier id;
+    string text;
+    long value;
+  };
+  @final struct Primitives {
+    @key long id;
+    boolean flag;
+    char letter;
+    octet oct;
+    int8 i8;
+    uint8 u8;
+    short i16;
+    unsigned short u16;
+    long i32;
+    unsigned long u32;
+    long long i64;
+    unsigned long long u64;
+    float f32;
+    double f64;
+    Color color;
+    Permissions permissions;
+  };
+  @final struct Containers {
+    @key long id;
+    string<16> label;
+    sequence<long, 8> numbers;
+    sequence<string> words;
+    Point point;
+    Point points[ARRAY_SIZE];
+    Matrix matrix;
+    sequence<Point> path;
+    sequence<sequence<long> > grid;
+  };
+  @appendable struct Optional {
+    @key long id;
+    @optional long number;
+    @optional string text;
+    @optional Point point;
+  };
+  @mutable struct Mutable {
+    @key @id(0) long id;
+    @id(3) string text;
+    @id(8) sequence<long> numbers;
+  };
+  // Independent schema versions: IDs, rather than declaration order, define mutable compatibility.
+  @nested @mutable struct EvolutionChildV1 { @id(1) long count; };
+  @nested @mutable struct EvolutionChildV2 {
+    @id(9) @optional string note;
+    @id(1) long count;
+  };
+  @mutable struct EvolutionV1 {
+    @key @id(0) long id;
+    @id(3) string text;
+    @id(8) sequence<long> retired;
+    @id(12) EvolutionChildV1 child;
+  };
+  @mutable struct EvolutionV2 {
+    @id(12) EvolutionChildV2 child;
+    @id(65537) @optional string added;
+    @id(3) string text;
+    @key @id(0) long id;
+  };
+  @mutable struct EvolutionRequired {
+    @key @id(0) long id;
+    @id(3) string text;
+    @id(12) EvolutionChildV2 child;
+    @id(65537) @must_understand long required;
+  };
+  @appendable struct AppendableV1 { @key long id; string text; };
+  @appendable struct AppendableV2 {
+    @key long id;
+    string text;
+    long count;
+    @optional string note;
+  };
+  // Enum extensibility is independent of the containing struct's extensibility.
+  module EnumOld {
+    @appendable enum StatusCode { READY, @default_literal UNKNOWN };
+    @appendable @bit_bound(8) enum SmallStatusCode { SMALL_READY, @default_literal SMALL_UNKNOWN };
+    @appendable struct Envelope {
+      @key long id;
+      StatusCode state;
+      SmallStatusCode small;
+      sequence<StatusCode> history;
+      sequence<SmallStatusCode> small_history;
+      long marker;
+    };
+  };
+  module EnumNew {
+    @appendable enum StatusCode { READY, @default_literal UNKNOWN, BUSY };
+    @appendable @bit_bound(8) enum SmallStatusCode { SMALL_READY, @default_literal SMALL_UNKNOWN, SMALL_BUSY };
+    @appendable struct Envelope {
+      @key long id;
+      StatusCode state;
+      SmallStatusCode small;
+      sequence<StatusCode> history;
+      sequence<SmallStatusCode> small_history;
+      long marker;
+    };
+  };
+  @appendable struct EnumEnvelopeV0 { @key long id; };
+  @appendable struct BoundaryV1 { @key long id; };
+  @appendable struct BoundaryV2 { @key long id; long added; };
+  @final struct Keyless { long value; };
+  @final union Choice switch(long) {
+    case 1: long number;
+    case 2:
+    case 3: string text;
+    case 4: sequence<long> numbers;
+    case 5: Point point;
+    default: double fallback;
+  };
+  @final union ColorChoice switch(Color) {
+    case RED: long red;
+    case GREEN: string green;
+    case BLUE: Point blue;
+  };
+  @final union BoolChoice switch(boolean) {
+    case TRUE: long yes;
+    case FALSE: long no;
+  };
+  @bit_bound(8) enum SmallEnum { SMALL_ZERO, SMALL_ONE };
+  @final struct WireCollections {
+    @key long id;
+    sequence<boolean> flags;
+    sequence<char> chars;
+    sequence<SmallEnum> enums;
+    SmallEnum enum_array[3];
+    sequence<Permissions> masks;
+    sequence<sequence<Point> > groups;
+  };
+  @nested @final struct NestedKey {
+    @key string name;
+    @key long long number;
+    string ignored;
+  };
+  @mutable struct LongKey {
+    @key @id(8) NestedKey key;
+    @key @id(2) long second;
+    @id(5) sequence<Containers> data;
+  };
+  @final union KeyedChoice switch(@key long) {
+    case 1: long number;
+    default: string text;
+  };
+  @mutable union MutableChoice switch(long) {
+    case 1: long number;
+    case 2: string text;
+    default: Point point;
+  };
+  @appendable union AppendableChoice switch(long) {
+    case 1: long number;
+    default: string text;
+  };
+  struct DirectRecursive;
+  @final struct DirectRecursive {
+    @key long id;
+    sequence<DirectRecursive> children;
+  };
+  struct Recursive;
+  @mutable struct Recursive {
+    @key long id;
+    @optional Recursive child;
+    sequence<Recursive> children;
+  };
+  @final struct NumericCollections {
+    @key long id;
+    octet prefix;
+    sequence<octet> bytes;
+    sequence<int8> signed_bytes;
+    sequence<short> shorts;
+    sequence<unsigned short> ushorts;
+    sequence<long> ints;
+    sequence<unsigned long> uints;
+    sequence<long long> longs;
+    sequence<unsigned long long> ulongs;
+    sequence<float> singles;
+    sequence<double> doubles;
+    long fixed_ints[3];
+    double fixed_doubles[3];
+    double matrix[2][3];
+    octet suffix;
+  };
+  @final struct ScalarBlocks {
+    @key long id;
+    octet a, b;
+    int8 c;
+    short d;
+    unsigned short e;
+    long f;
+    unsigned long g;
+    float h;
+    double x, y;
+    long long i;
+    unsigned long long j;
+  };
+  struct MutualA;
+  struct MutualB;
+  @final struct MutualA { @key long id; sequence<MutualB> children; };
+  @final struct MutualB { sequence<MutualA> parents; };
+  @data_representation(XCDR2) @final struct DirectMixed {
+    @key long id;
+    Recursive mutable_value;
+    Optional optional_value;
+  };
+};

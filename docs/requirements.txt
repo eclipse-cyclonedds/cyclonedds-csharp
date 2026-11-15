@@ -1,0 +1,2 @@
+Sphinx>=6,<9
+piccolo-theme>=0.12,<1

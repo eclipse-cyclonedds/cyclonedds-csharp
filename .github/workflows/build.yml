@@ -1,0 +1,342 @@
+# Copyright(c) 2026 Sven Trittler
+#
+# This program and the accompanying materials are made available under the
+# terms of the Eclipse Public License v. 2.0 which is available at
+# http://www.eclipse.org/legal/epl-2.0, or the Eclipse Distribution License
+# v. 1.0 which is available at
+# http://www.eclipse.org/org/documents/edl-v10.php.
+#
+# SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+name: Build, test, package and publish
+
+on:
+  push:
+    branches: ['**']
+    tags: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # A newer branch build may replace an older one; a release must finish publishing.
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+  CMAKE_GENERATOR: Ninja
+  # Cross-process DDS tests must not depend on the runner's multicast network.
+  CYCLONEDDS_URI: >-
+    <CycloneDDS><Domain Id="any"><General>
+    <Interfaces><NetworkInterface address="127.0.0.1"/></Interfaces>
+    <AllowMulticast>false</AllowMulticast></General><Discovery>
+    <ParticipantIndex>auto</ParticipantIndex><MaxAutoParticipantIndex>32</MaxAutoParticipantIndex>
+    <Peers><Peer Address="127.0.0.1"/></Peers>
+    </Discovery></Domain></CycloneDDS>
+  ANDROID_NDK_VERSION: 27.2.12479018
+
+jobs:
+  prepare:
+    name: Prepare build matrix
+    runs-on: ubuntu-24.04
+    outputs:
+      desktop: ${{ steps.matrix.outputs.desktop }}
+      android: ${{ steps.matrix.outputs.android }}
+      ios: ${{ steps.matrix.outputs.ios }}
+      version: ${{ steps.matrix.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read target matrix and shared version
+        id: matrix
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          version = Path('VERSION').read_text().strip()
+          if os.environ.get('GITHUB_REF_TYPE') == 'tag':
+              tag = os.environ['GITHUB_REF_NAME']
+              if tag.removeprefix('v') != version:
+                  raise SystemExit(f'Release tag {tag} does not match VERSION {version}')
+          targets = json.loads(Path('.github/targets.json').read_text())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for kind in ('desktop', 'android', 'ios'):
+                  print(f'{kind}=' + json.dumps({'include': targets[kind]}, separators=(',', ':')), file=output)
+              print('version=' + version, file=output)
+
+  desktop:
+    name: Build and test ${{ matrix.rid }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.desktop) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 9.0.x
+          architecture: ${{ matrix.arch }}
+      - name: Show repository-selected .NET SDK
+        run: dotnet --version
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          architecture: ${{ matrix.arch }}
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: ${{ matrix.arch }}
+      - name: Build selected Cyclone DDS source
+        run: bash scripts/bootstrap-native.sh
+      - name: Smoke test native IDL compiler
+        shell: python
+        run: |
+          import os
+          import subprocess
+          from pathlib import Path
+          compiler = Path('build/_deps/cyclonedds-install/bin') / ('idlc.exe' if os.name == 'nt' else 'idlc')
+          output = Path('build/native-idlc-smoke').resolve()
+          output.mkdir(parents=True, exist_ok=True)
+          subprocess.run([str(compiler), '-x', 'final', '-o', str(output), 'examples/HelloWorld/HelloWorld.idl'], check=True)
+          assert all((output / ('HelloWorld' + suffix)).is_file() for suffix in ('.c', '.h'))
+      - name: Configure C# binding
+        run: cmake -S . -B build -DCMAKE_PREFIX_PATH="$PWD/build/_deps/cyclonedds-install" -DCMAKE_BUILD_TYPE=Release
+      - name: Build binding, tests and examples
+        run: cmake --build build --config Release --parallel
+      - name: Run runtime, IDL and example tests
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Save test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: diagnostics-${{ matrix.rid }}
+          path: |
+            build/Testing/Temporary/*.log
+            build/example-tests/**/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stage native runtime and host tools
+        env:
+          PACKAGE_RID: ${{ matrix.rid }}
+        run: |
+          python scripts/pack-package.py --prefix build/_deps/cyclonedds-install --build build --rid "$PACKAGE_RID" --stage-only
+          python scripts/verify-package.py --stage build/package --runtime-rid "$PACKAGE_RID"
+      - name: Upload native payload for assembly
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.rid }}
+          path: build/package/
+          if-no-files-found: error
+          retention-days: 1
+
+  android:
+    name: Cross-build ${{ matrix.rid }} runtime
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.android) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Set up Java for Android SDK tools
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK and install pinned NDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ndk;${{ env.ANDROID_NDK_VERSION }}
+      - name: Select pinned Android NDK
+        run: echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
+      - name: Build runtime without Android IDL tools
+        env:
+          PACKAGE_RID: ${{ matrix.rid }}
+        run: bash scripts/build-android.sh "$PACKAGE_RID"
+      - name: Verify Android ELF architecture, SONAME and 16 KB alignment
+        env:
+          PACKAGE_RID: ${{ matrix.rid }}
+        run: python scripts/verify-package.py --stage "build/android/$PACKAGE_RID/binding/package" --runtime-rid "$PACKAGE_RID"
+      - name: Upload Android runtime payload for assembly
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.rid }}
+          path: build/android/${{ matrix.rid }}/binding/package/
+          if-no-files-found: error
+          retention-days: 1
+
+  ios:
+    name: Cross-build ${{ matrix.rid }} runtime
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.ios) }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build runtime without iOS IDL tools
+        env:
+          PACKAGE_RID: ${{ matrix.rid }}
+        run: bash scripts/build-ios.sh "$PACKAGE_RID"
+      - name: Verify iOS Mach-O architecture
+        env:
+          PACKAGE_RID: ${{ matrix.rid }}
+        run: python3 scripts/verify-package.py --stage "build/ios/$PACKAGE_RID/binding/package" --runtime-rid "$PACKAGE_RID"
+      - name: Upload iOS runtime payload
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.rid }}
+          path: build/ios/${{ matrix.rid }}/binding/package/
+          if-no-files-found: error
+          retention-days: 1
+
+  package:
+    name: Assemble one multi-platform NuGet
+    needs: [prepare, desktop, android, ios]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 9.0.x
+      - name: Show repository-selected .NET SDK
+        run: dotnet --version
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-*
+          path: build/package
+          merge-multiple: true
+      - name: Validate all expected runtimes and desktop tools
+        run: python scripts/verify-package.py --stage build/package --targets .github/targets.json
+      - name: Pack the single NuGet
+        run: dotnet pack src/ddscsharp/Org.Eclipse.CycloneDDS.csproj -c Release -o artifacts/packages -p:NativePackageDirectory="$PWD/build/package" -p:UseSharedCompilation=false
+      - name: Validate packaged platforms and version
+        env:
+          PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: python scripts/verify-package.py --package "artifacts/packages/Org.Eclipse.CycloneDDS.$PACKAGE_VERSION.nupkg" --targets .github/targets.json
+      - name: Upload candidate for platform verification
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuget-candidate
+          path: artifacts/packages/*.nupkg
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  verify:
+    name: Verify combined NuGet on ${{ matrix.rid }}
+    needs: [prepare, package]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.desktop) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 9.0.x
+          architecture: ${{ matrix.arch }}
+      - name: Show repository-selected .NET SDK
+        run: dotnet --version
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          architecture: ${{ matrix.arch }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: nuget-candidate
+          path: artifacts/packages
+      - name: Verify one-reference IDL builds, publishing and DDS round trips
+        env:
+          PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: python scripts/test-package.py --package "artifacts/packages/Org.Eclipse.CycloneDDS.$PACKAGE_VERSION.nupkg" --build build
+
+  archive:
+    name: Archive final NuGet
+    needs: [prepare, package, verify]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: nuget-candidate
+          path: artifacts/packages
+      - name: Archive the verified multi-platform package
+        uses: actions/upload-artifact@v7
+        with:
+          path: artifacts/packages/Org.Eclipse.CycloneDDS.${{ needs.prepare.outputs.version }}.nupkg
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: Publish verified release to nuget.org
+    needs: [prepare, archive]
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: nuget
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
+      NUGET_USER: ${{ vars.NUGET_USER }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 9.0.x
+      - name: Check publishing configuration
+        run: ': "${NUGET_USER:?Set the NUGET_USER variable in the GitHub nuget environment to your nuget.org username.}"'
+      - uses: actions/download-artifact@v8
+        with:
+          name: nuget-candidate
+          path: artifacts/packages
+      - name: Recheck release package identity and platforms
+        run: python3 scripts/verify-package.py --package "artifacts/packages/Org.Eclipse.CycloneDDS.$PACKAGE_VERSION.nupkg" --targets .github/targets.json
+      - name: Authenticate to nuget.org with GitHub OIDC
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ${{ env.NUGET_USER }}
+      - name: Publish the verified package
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: >-
+          dotnet nuget push "artifacts/packages/Org.Eclipse.CycloneDDS.$PACKAGE_VERSION.nupkg"
+          --source https://api.nuget.org/v3/index.json
+          --api-key "$NUGET_API_KEY"
+          --skip-duplicate
