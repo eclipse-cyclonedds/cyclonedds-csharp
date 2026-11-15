@@ -12,9 +12,9 @@ SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Description>The official C# binding for Eclipse Cyclone DDS. Including native runtimes, the IDL compiler and automatic C# generation.</Description>
-    <PackageId Condition="'$(PackageId)' == ''">Org.Eclipse.CycloneDDS</PackageId>
-    <AssemblyName>Org.Eclipse.CycloneDDS</AssemblyName>
-    <RootNamespace>Org.Eclipse.CycloneDDS</RootNamespace>
+    <PackageId>Org.Eclipse.CycloneDDS</PackageId>
+    <AssemblyName>$(PackageId)</AssemblyName>
+    <RootNamespace>$(PackageId)</RootNamespace>
     <Title>Eclipse Cyclone DDS for C#</Title>
     <Authors>Cyclone DDS C# contributors</Authors>
     <PackageTags>DDS;CycloneDDS;CSharp;publish-subscribe;RTPS</PackageTags>
@@ -46,9 +46,9 @@ SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
     <ItemGroup>
       <TfmSpecificPackageFile Include="@(_CycloneDDSBuildTaskAssembly)" PackagePath="tools/net9.0/" />
       <TfmSpecificPackageFile Include="$(MSBuildThisFileDirectory)../buildtools/packaging/Org.Eclipse.CycloneDDS.props"
-                              PackagePath="build/$(PackageId).props" />
+                              PackagePath="build/Org.Eclipse.CycloneDDS.props" />
       <TfmSpecificPackageFile Include="$(MSBuildThisFileDirectory)../buildtools/packaging/Org.Eclipse.CycloneDDS.targets"
-                              PackagePath="build/$(PackageId).targets" />
+                              PackagePath="build/Org.Eclipse.CycloneDDS.targets" />
     </ItemGroup>
   </Target>
   <Target Name="RequireNativePackage" BeforeTargets="GenerateNuspec">

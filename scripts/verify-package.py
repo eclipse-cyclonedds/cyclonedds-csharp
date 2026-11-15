@@ -109,7 +109,7 @@ def verify_binary(path, data, rid):
         raise ValueError(f'{path}: CPU machine {machine:#x} does not match {rid} ({expected:#x})')
 
 
-def verify(files, read, runtime_rids, tool_rids, version, package, package_id='Org.Eclipse.CycloneDDS'):
+def verify(files, read, runtime_rids, tool_rids, version, package):
     actual_runtime = {p.split('/')[1] for p in files if p.startswith('runtimes/')}
     actual_tools = {p.split('/')[1] for p in files if p.startswith('tools/') and len(p.split('/')) > 3 and p.split('/')[2] in ('native', 'lib')}
     if actual_runtime != runtime_rids or actual_tools != tool_rids:
@@ -137,14 +137,15 @@ def verify(files, read, runtime_rids, tool_rids, version, package, package_id='O
         for path in sorted(p for p in files if p.startswith(f'tools/{rid}/')):
             verify_binary(path, read(path), rid)
     if package:
-        for path in ('lib/net9.0/Org.Eclipse.CycloneDDS.dll', f'build/{package_id}.props', f'build/{package_id}.targets',
-                     'tools/net9.0/Org.Eclipse.CycloneDDS.BuildTasks.dll', 'README.md', 'LICENSE'):
+        package_id = 'Org.Eclipse.CycloneDDS'
+        for path in (f'lib/net9.0/{package_id}.dll', f'build/{package_id}.props', f'build/{package_id}.targets',
+                     f'tools/net9.0/{package_id}.BuildTasks.dll', 'README.md', 'LICENSE'):
             if path not in files:
                 raise ValueError(f'Missing package file {path}')
         metadata = ElementTree.fromstring(read(f'{package_id}.nuspec'))
         ns = {'n': 'http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd'}
         if metadata.findtext('n:metadata/n:id', namespaces=ns) != package_id or metadata.findtext('n:metadata/n:version', namespaces=ns) != version:
-            raise ValueError(f'Expected package {package_id} version {version}')
+            raise ValueError('Package identity/version differs from VERSION')
         if metadata.findall('.//n:dependency', namespaces=ns):
             raise ValueError('The single package must not depend on another build-tools package')
     print(f'PASS {"NuGet" if package else "stage"}: {len(runtime_rids)} runtimes, {len(tool_rids)} desktop tool sets; '
@@ -156,8 +157,6 @@ def main():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument('--stage', type=Path)
     source.add_argument('--package', type=Path)
-    parser.add_argument('--package-id', default='Org.Eclipse.CycloneDDS')
-    parser.add_argument('--version', help='Expected package version; defaults to VERSION')
     targets = parser.add_mutually_exclusive_group(required=True)
     targets.add_argument('--targets', type=Path)
     targets.add_argument('--runtime-rid', action='append', help='Validate a subset; Android never requires host tools')
@@ -169,10 +168,10 @@ def main():
     else:
         runtime_rids = set(args.runtime_rid)
         tool_rids = {rid for rid in runtime_rids if not rid.startswith(('android-', 'ios-', 'iossimulator-'))}
-    version = args.version or (ROOT / 'VERSION').read_text().strip()
+    version = (ROOT / 'VERSION').read_text().strip()
     if args.package:
         with ZipFile(args.package) as archive:
-            verify({p for p in archive.namelist() if not p.endswith('/')}, archive.read, runtime_rids, tool_rids, version, True, args.package_id)
+            verify({p for p in archive.namelist() if not p.endswith('/')}, archive.read, runtime_rids, tool_rids, version, True)
     else:
         files = {p.relative_to(args.stage).as_posix() for p in args.stage.rglob('*') if p.is_file()}
         verify(files, lambda p: (args.stage / p).read_bytes(), runtime_rids, tool_rids, version, False)

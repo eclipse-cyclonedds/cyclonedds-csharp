@@ -47,7 +47,6 @@ jobs:
       android: ${{ steps.matrix.outputs.android }}
       ios: ${{ steps.matrix.outputs.ios }}
       version: ${{ steps.matrix.outputs.version }}
-      package_id: ${{ steps.matrix.outputs.package_id }}
     steps:
       - uses: actions/checkout@v7
       - name: Read target matrix and shared version
@@ -58,10 +57,6 @@ jobs:
           import os
           from pathlib import Path
           version = Path('VERSION').read_text().strip()
-          package_id = 'Org.Eclipse.CycloneDDS'
-          if os.environ['GITHUB_EVENT_NAME'] == 'push' and os.environ['GITHUB_REF'] == 'refs/heads/feature/initial-commit':
-              package_id = 'trittsv.CycloneDDS'
-              version += f"-ci.{os.environ['GITHUB_RUN_NUMBER']}.{os.environ['GITHUB_RUN_ATTEMPT']}"
           if os.environ.get('GITHUB_REF_TYPE') == 'tag':
               tag = os.environ['GITHUB_REF_NAME']
               if tag.removeprefix('v') != version:
@@ -71,7 +66,6 @@ jobs:
               for kind in ('desktop', 'android', 'ios'):
                   print(f'{kind}=' + json.dumps({'include': targets[kind]}, separators=(',', ':')), file=output)
               print('version=' + version, file=output)
-              print('package_id=' + package_id, file=output)
 
   desktop:
     name: Build and test ${{ matrix.rid }}
@@ -220,9 +214,6 @@ jobs:
     needs: [prepare, desktop, android, ios]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    env:
-      PACKAGE_ID: ${{ needs.prepare.outputs.package_id }}
-      PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
     defaults:
       run:
         shell: bash
@@ -244,11 +235,11 @@ jobs:
       - name: Validate all expected runtimes and desktop tools
         run: python scripts/verify-package.py --stage build/package --targets .github/targets.json
       - name: Pack the single NuGet
-        run: dotnet pack src/ddscsharp/Org.Eclipse.CycloneDDS.csproj -c Release -o artifacts/packages -p:NativePackageDirectory="$PWD/build/package" -p:UseSharedCompilation=false -p:PackageId="$PACKAGE_ID" -p:PackageVersion="$PACKAGE_VERSION"
+        run: dotnet pack src/ddscsharp/Org.Eclipse.CycloneDDS.csproj -c Release -o artifacts/packages -p:NativePackageDirectory="$PWD/build/package" -p:UseSharedCompilation=false
       - name: Validate packaged platforms and version
         env:
           PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
-        run: python scripts/verify-package.py --package "artifacts/packages/$PACKAGE_ID.$PACKAGE_VERSION.nupkg" --package-id "$PACKAGE_ID" --version "$PACKAGE_VERSION" --targets .github/targets.json
+        run: python scripts/verify-package.py --package "artifacts/packages/Org.Eclipse.CycloneDDS.$PACKAGE_VERSION.nupkg" --targets .github/targets.json
       - name: Upload candidate for platform verification
         uses: actions/upload-artifact@v7
         with:
@@ -288,8 +279,7 @@ jobs:
       - name: Verify one-reference IDL builds, publishing and DDS round trips
         env:
           PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
-          PACKAGE_ID: ${{ needs.prepare.outputs.package_id }}
-        run: python scripts/test-package.py --package "artifacts/packages/$PACKAGE_ID.$PACKAGE_VERSION.nupkg" --package-id "$PACKAGE_ID" --build build
+        run: python scripts/test-package.py --package "artifacts/packages/Org.Eclipse.CycloneDDS.$PACKAGE_VERSION.nupkg" --build build
 
   archive:
     name: Archive final NuGet
@@ -303,15 +293,15 @@ jobs:
       - name: Archive the verified multi-platform package
         uses: actions/upload-artifact@v7
         with:
-          path: artifacts/packages/${{ needs.prepare.outputs.package_id }}.${{ needs.prepare.outputs.version }}.nupkg
+          path: artifacts/packages/Org.Eclipse.CycloneDDS.${{ needs.prepare.outputs.version }}.nupkg
           archive: false
           if-no-files-found: error
           retention-days: 30
 
   publish:
-    name: Publish verified package to nuget.org
+    name: Publish verified release to nuget.org
     needs: [prepare, archive]
-    if: github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/feature/initial-commit')
+    if: github.event_name == 'push' && github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment: nuget
@@ -323,7 +313,6 @@ jobs:
         shell: bash
     env:
       PACKAGE_VERSION: ${{ needs.prepare.outputs.version }}
-      PACKAGE_ID: ${{ needs.prepare.outputs.package_id }}
       NUGET_USER: ${{ vars.NUGET_USER }}
     steps:
       - uses: actions/checkout@v7
@@ -337,7 +326,7 @@ jobs:
           name: nuget-candidate
           path: artifacts/packages
       - name: Recheck release package identity and platforms
-        run: python3 scripts/verify-package.py --package "artifacts/packages/$PACKAGE_ID.$PACKAGE_VERSION.nupkg" --package-id "$PACKAGE_ID" --version "$PACKAGE_VERSION" --targets .github/targets.json
+        run: python3 scripts/verify-package.py --package "artifacts/packages/Org.Eclipse.CycloneDDS.$PACKAGE_VERSION.nupkg" --targets .github/targets.json
       - name: Authenticate to nuget.org with GitHub OIDC
         uses: NuGet/login@v1
         id: nuget-login
@@ -347,7 +336,7 @@ jobs:
         env:
           NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: >-
-          dotnet nuget push "artifacts/packages/$PACKAGE_ID.$PACKAGE_VERSION.nupkg"
+          dotnet nuget push "artifacts/packages/Org.Eclipse.CycloneDDS.$PACKAGE_VERSION.nupkg"
           --source https://api.nuget.org/v3/index.json
           --api-key "$NUGET_API_KEY"
           --skip-duplicate
