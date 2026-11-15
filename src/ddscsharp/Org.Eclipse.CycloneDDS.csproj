@@ -11,7 +11,7 @@ SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <Description>Eclipse Cyclone DDS for C#, including native runtimes, the IDL compiler and automatic C# generation.</Description>
+    <Description>The official C# binding for Eclipse Cyclone DDS.</Description>
     <PackageId Condition="'$(PackageId)' == ''">Org.Eclipse.CycloneDDS</PackageId>
     <AssemblyName>Org.Eclipse.CycloneDDS</AssemblyName>
     <RootNamespace>Org.Eclipse.CycloneDDS</RootNamespace>
@@ -20,12 +20,14 @@ SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
     <PackageTags>DDS;CycloneDDS;CSharp;publish-subscribe;RTPS</PackageTags>
     <PackageLicenseExpression>EPL-2.0 OR BSD-3-Clause</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
     <BuildTasksProject>$(MSBuildThisFileDirectory)../buildtools/Org.Eclipse.CycloneDDS.BuildTasks.csproj</BuildTasksProject>
     <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);IncludeCycloneDDSBuildTasks</TargetsForTfmSpecificContentInPackage>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
     <None Include="../../README.md" Pack="true" PackagePath="/" />
+    <None Include="../../icon.png" Pack="true" PackagePath="/" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="$(BuildTasksProject)" ReferenceOutputAssembly="false" PrivateAssets="all" />

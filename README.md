@@ -160,11 +160,6 @@ The bootstrap clones Cyclone DDS C `master`, or the matching C tag for a release
 See [the build guide](docs/manual/building.rst) for dependency selection and packaging
 and [documentation build instructions](docs/how-to-build.md) to preview the manual.
 
-## Publishing releases
-
-For publishing tagged releases to nuget.org and setting up authentication, see
-the [publishing guide](docs/publishing.md).
-
 ## Repository structure
 
 ```bash
