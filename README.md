@@ -2,6 +2,8 @@
 
 [![Website](https://img.shields.io/badge/web-cyclonedds.io-blue)](https://cyclonedds.io)
 [![Community](https://img.shields.io/badge/discord-join%20community-5865f2)](https://discord.gg/BkRYQPpZVV)
+[![NuGet](https://img.shields.io/nuget/v/Org.Eclipse.CycloneDDS?logo=nuget)](https://www.nuget.org/packages/Org.Eclipse.CycloneDDS)
+[![Downloads](https://img.shields.io/nuget/dt/Org.Eclipse.CycloneDDS?logo=nuget)](https://www.nuget.org/packages/Org.Eclipse.CycloneDDS)
 
 The official C# binding for [Eclipse Cyclone DDS](https://github.com/eclipse-cyclonedds/cyclonedds).
 
