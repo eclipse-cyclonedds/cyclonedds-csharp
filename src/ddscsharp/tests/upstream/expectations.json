@@ -1,7 +1,7 @@
 {
   "CdrDataModels.idl": {
     "status": "reject",
-    "diagnostic": "structure inheritance is not implemented"
+    "diagnostic": "non-mutable structure inheritance is not implemented"
   },
   "CdrDataModels_pragma.idl": {
     "status": "generate",
@@ -73,7 +73,7 @@
   },
   "RegressionModels_pragma.idl": {
     "status": "reject",
-    "diagnostic": "structure inheritance is not implemented"
+    "diagnostic": "non-mutable structure inheritance is not implemented"
   },
   "Serialization.idl": {
     "status": "generate",

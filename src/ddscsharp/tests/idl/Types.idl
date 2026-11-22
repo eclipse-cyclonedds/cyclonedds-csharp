@@ -227,4 +227,14 @@ module Test {
     Recursive mutable_value;
     Optional optional_value;
   };
+  @mutable struct InheritanceBase {
+    @key @id(9) long id;
+    @id(10) sequence<long> values;
+    @id(11) octet flag;
+  };
+  @mutable struct InheritanceDerived : InheritanceBase {
+    @id(1) octet level;
+    @id(2) string text;
+    @optional @id(3) double measurement;
+  };
 };
