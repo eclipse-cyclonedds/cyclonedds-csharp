@@ -35,7 +35,10 @@ Mapping
 * Sequences implement ``Omg.Types.ISequence<T>``; typedefs resolve to their underlying type.
 * Copy constructors and equality compare member values.
 
-Current limits include struct inheritance, ``@external``, maps, wide strings/chars,
+Mutable struct inheritance maps to C# class inheritance, including inherited keys
+and members. Final and appendable struct inheritance are not yet supported.
+
+Current limits include ``@external``, maps, wide strings/chars,
 fixed-point and long-double types, and recursive arrays. Outgoing object graphs
 must be acyclic and no more than 256 objects deep.
 

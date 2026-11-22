@@ -241,8 +241,10 @@ static bool cdr_may_cycle(generator *g, const void *type, unsigned depth) {
   bool cycle = false;
   if (idl_is_sequence(type)) cycle = cdr_may_cycle(g, idl_type_spec(type), depth + 1);
   else if (idl_is_struct(type)) {
+    const idl_struct_t *st = type;
+    if (st->inherit_spec) cycle |= cdr_may_cycle(g, st->inherit_spec->base, depth + 1);
     const idl_member_t *m;
-    IDL_FOREACH(m, ((const idl_struct_t *)type)->members)
+    IDL_FOREACH(m, st->members)
       cycle |= m->external.value || cdr_may_cycle(g, m->type_spec, depth + 1);
   } else if (idl_is_union(type)) {
     const idl_case_t *c;
@@ -388,12 +390,34 @@ static void emit_direct_cdr_struct(generator *g, const idl_struct_t *s, bool may
   fputs("        return value;\n    }\n", f);
 }
 
+/* Iterate inherited members in declaration order, without modifying the AST. */
+static const idl_member_t *first_member(const idl_struct_t *s) {
+  if (s->inherit_spec) {
+    const idl_member_t *m = first_member(s->inherit_spec->base);
+    if (m) return m;
+  }
+  return s->members;
+}
+static const idl_member_t *next_member(const idl_struct_t *s, const idl_member_t *m) {
+  if (idl_next(m)) return idl_next(m);
+  const idl_struct_t *owner = (const idl_struct_t *)m->node.parent;
+  while (owner != s) {
+    const idl_struct_t *child = s;
+    while (child->inherit_spec->base != owner) child = child->inherit_spec->base;
+    if (child->members) return child->members;
+    owner = child;
+  }
+  return NULL;
+}
+#define ALL_MEMBERS(m, s) for ((m) = first_member(s); (m); (m) = next_member((s), (m)))
+
 /* Layout is measured by the C compiler. No C ABI offsets are guessed by managed code. */
 static int emit_struct(generator *g, const idl_struct_t *s) {
   FILE *f = g->cs;
-  if (s->inherit_spec) return unsupported(g, s, "structure inheritance is not implemented");
+  if (s->inherit_spec && s->extensibility.value != IDL_MUTABLE)
+    return unsupported(g, s, "non-mutable structure inheritance is not implemented");
   const idl_member_t *m;
-  IDL_FOREACH(m, s->members) {
+  ALL_MEMBERS(m, s) {
     if (m->external.value) return unsupported(g, m, "@external is not implemented");
     const idl_declarator_t *d;
     IDL_FOREACH(d, m->declarators) {
@@ -409,7 +433,9 @@ static int emit_struct(generator *g, const idl_struct_t *s) {
   }
   int id = g->next_id++;
   const char *name = idl_identifier(s);
-  fprintf(f, "public partial class @%s : global::System.IEquatable<@%s>\n{\n", name, name);
+  fprintf(f, "public partial class @%s : ", name);
+  if (s->inherit_spec) { scoped(f, s->inherit_spec->base, true); fputs(", ", f); }
+  fprintf(f, "global::System.IEquatable<@%s>\n{\n", name);
   int index = 0;
   IDL_FOREACH(m, s->members) {
     const idl_declarator_t *d;
@@ -430,21 +456,21 @@ static int emit_struct(generator *g, const idl_struct_t *s) {
       }
       fputs("    public ", f); type_name(f, m->type_spec, d);
       if (m->optional.value) fputc('?', f);
-      fprintf(f, " @%s { get; %sset; } = ", member_name(d), seq && !m->optional.value ? "private " : "");
+      fprintf(f, " @%s { get; %sset; } = ", member_name(d), seq && !m->optional.value ? "protected " : "");
       if (m->optional.value) fputs("null", f); else initial(f, m->type_spec, d);
       fputs(";\n", f);
     }
   }
   fprintf(f, "    public @%s() { }\n    public @%s(@%s other)\n    {\n        global::System.ArgumentNullException.ThrowIfNull(other);\n        var copy = global::Org.Eclipse.CycloneDDS.Codecs.Clone(__Codec, other);\n", name, name, name);
-  IDL_FOREACH(m, s->members) {
+  ALL_MEMBERS(m, s) {
     const idl_declarator_t *d;
     IDL_FOREACH(d, m->declarators) fprintf(f, "        this.@%s = copy.@%s;\n", member_name(d), member_name(d));
   }
   fputs("    }\n", f);
-  if (s->members) {
+  if (first_member(s)) {
     fprintf(f, "    public @%s(", name);
     bool first = true;
-    IDL_FOREACH(m, s->members) {
+    ALL_MEMBERS(m, s) {
       const idl_declarator_t *d;
       IDL_FOREACH(d, m->declarators) {
         if (!first) fputs(", ", f);
@@ -454,20 +480,24 @@ static int emit_struct(generator *g, const idl_struct_t *s) {
       }
     }
     fputs(")\n    {\n", f);
-    IDL_FOREACH(m, s->members) {
+    ALL_MEMBERS(m, s) {
       const idl_declarator_t *d;
       IDL_FOREACH(d, m->declarators) fprintf(f, "        this.@%s = @%s;\n", member_name(d), member_name(d));
     }
     fputs("    }\n", f);
   }
-  fprintf(f, "    public bool Equals(@%s? other) => other is not null", name);
-  IDL_FOREACH(m, s->members) {
+  if (s->inherit_spec) {
+    fputs("    public override bool Equals(", f); scoped(f, s->inherit_spec->base, true);
+    fprintf(f, "? other) => other is @%s value && Equals(value);\n", name);
+  }
+  fprintf(f, "    public virtual bool Equals(@%s? other) => other is not null && GetType() == other.GetType()", name);
+  ALL_MEMBERS(m, s) {
     const idl_declarator_t *d;
     IDL_FOREACH(d, m->declarators) fprintf(f, "\n        && global::Org.Eclipse.CycloneDDS.DdsValue.Equal(this.@%s, other.@%s)", member_name(d), member_name(d));
   }
   fprintf(f, ";\n    public override bool Equals(object? other) => other is @%s value && Equals(value);\n", name);
   fputs("    public override int GetHashCode()\n    {\n        var hash = new global::System.HashCode();\n", f);
-  IDL_FOREACH(m, s->members) {
+  ALL_MEMBERS(m, s) {
     const idl_declarator_t *d;
     IDL_FOREACH(d, m->declarators) fprintf(f, "        hash.Add(global::Org.Eclipse.CycloneDDS.DdsValue.Hash(this.@%s));\n", member_name(d));
   }
@@ -477,8 +507,8 @@ static int emit_struct(generator *g, const idl_struct_t *s) {
   bool may_cycle = direct_cdr ? cdr_may_cycle(g, s, 0) : true;
   if (g->error) return g->error;
   if (direct_cdr) emit_direct_cdr_struct(g, s, may_cycle);
-  fprintf(f, "    public static global::Org.Eclipse.CycloneDDS.Codec<@%s> __Codec { get; } = new global::Org.Eclipse.CycloneDDS.StructCodec<@%s>(\n        global::__Dds_%s.Library.Size(%d), () => new @%s()", name, name, g->stem, id, name);
-  IDL_FOREACH(m, s->members) {
+  fprintf(f, "    public %sstatic global::Org.Eclipse.CycloneDDS.Codec<@%s> __Codec { get; } = new global::Org.Eclipse.CycloneDDS.StructCodec<@%s>(\n        global::__Dds_%s.Library.Size(%d), () => new @%s()", s->inherit_spec ? "new " : "", name, name, g->stem, id, name);
+  ALL_MEMBERS(m, s) {
     const idl_declarator_t *d;
     IDL_FOREACH(d, m->declarators) {
       shape member_shape;
@@ -495,7 +525,7 @@ static int emit_struct(generator *g, const idl_struct_t *s) {
   if (direct_cdr) fprintf(f, "new global::Org.Eclipse.CycloneDDS.GeneratedCdrCodec<@%s>(", name);
   fprintf(f, "new global::Org.Eclipse.CycloneDDS.CdrStructCodec<@%s>(() => new @%s(), global::Org.Eclipse.CycloneDDS.CdrExtensibility.%s", name, name,
     s->extensibility.value == IDL_FINAL ? "Final" : s->extensibility.value == IDL_APPENDABLE ? "Appendable" : "Mutable");
-  IDL_FOREACH(m, s->members) {
+  ALL_MEMBERS(m, s) {
     const idl_declarator_t *d;
     IDL_FOREACH(d, m->declarators) {
       shape member_shape;
@@ -512,7 +542,7 @@ static int emit_struct(generator *g, const idl_struct_t *s) {
   else fputc(')', f);
   fputs(");\n", f);
   if (idl_is_topic(s, g->pstate->keylists)) {
-    fprintf(f, "    public static global::Org.Eclipse.CycloneDDS.TypeSupport<@%s> TypeSupport { get; } = new(\"", name);
+    fprintf(f, "    public %sstatic global::Org.Eclipse.CycloneDDS.TypeSupport<@%s> TypeSupport { get; } = new(\"", s->inherit_spec && idl_is_topic(s->inherit_spec->base, g->pstate->keylists) ? "new " : "", name);
     /* DDS names use :: rather than managed namespace separators. */
     const idl_node_t *parts[128]; size_t count = 0;
     for (const idl_node_t *n = &s->node; n && count < 128; n = n->parent) if (idl_identifier(n)) parts[count++] = n;
@@ -768,8 +798,10 @@ static void layout(FILE *f, const void *type, const idl_declarator_t *decl) {
     else fprintf(f, "%s.Pointer", ns);
   } else if (idl_is_sequence(s.base)) fprintf(f, "%s.Sequence", ns);
   else if (idl_is_struct(s.base)) {
-    fprintf(f, "%s.Struct(", ns);
+    const idl_struct_t *st = s.base;
+    fprintf(f, "%s.%s(", ns, st->inherit_spec ? "Derived" : "Struct");
     const idl_member_t *m; bool comma = false;
+    if (st->inherit_spec) { layout(f, st->inherit_spec->base, NULL); comma = true; }
     IDL_FOREACH(m, ((const idl_struct_t *)s.base)->members) {
       const idl_declarator_t *d;
       IDL_FOREACH(d, m->declarators) {

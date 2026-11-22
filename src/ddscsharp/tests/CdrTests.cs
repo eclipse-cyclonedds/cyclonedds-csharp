@@ -46,6 +46,8 @@ internal static partial class Program
             Check("primitives", Primitives.TypeSupport, new Primitives { id = 1, flag = true, letter = 'ä', i8 = -99, i16 = -123, i32 = -991, i64 = long.MinValue, u64 = ulong.MaxValue, f32 = -1.25f, f64 = Math.PI, color = Color.BLUE, permissions = Permissions.ADMIN });
             Check("optional-absent", Optional.TypeSupport, new Optional { id = 1 });
             Check("optional-present", Optional.TypeSupport, new Optional { id = 2, number = -44, text = "optional 🌍", point = new Point { x = 1.25, y = -7.5 } });
+            Check("inheritance-empty", InheritanceDerived.TypeSupport, new InheritanceDerived { id = 17 });
+            Check("inheritance-populated", InheritanceDerived.TypeSupport, new InheritanceDerived { id = 18, values = { 1, -2, 3 }, flag = 255, level = 13, text = "inherited", measurement = -1.25 });
             Check("mutable", Mutable.TypeSupport, new Mutable { id = 7, text = "mutable", numbers = { 1, -2, 3 } });
             Check("recursive", Recursive.TypeSupport, new Recursive { id = 1, child = new Recursive { id = 2, children = { new Recursive { id = 3 } } } });
             Check("collections", WireCollections.TypeSupport, new WireCollections { id = 8, flags = { true, false, true }, chars = { 'a', 'ä' }, enums = { Test.SmallEnum.SMALL_ONE }, masks = { Permissions.ADMIN }, groups = { new Sequence<Point>([new Point { x = 4, y = 5 }]) } });
@@ -71,6 +73,21 @@ internal static partial class Program
             Check("mutual-recursion", MutualA.TypeSupport, mutual);
             Check("keyless", Keyless.TypeSupport, new Keyless { value = 10 });
         }
+        Run("Generated.mutable-inheritance-copy-and-equality", () =>
+        {
+            var original = new InheritanceDerived { id = 21, values = { 7, 8 }, flag = 9, level = 12, text = "derived", measurement = 2.5 };
+            var copy = new InheritanceDerived(original);
+            Equal(original, copy); Equal(original.GetHashCode(), copy.GetHashCode());
+            IEquatable<InheritanceBase> baseView = original;
+            True(baseView.Equals(copy));
+            copy.text = "changed";
+            True(!baseView.Equals(copy));
+            True(!original.Equals((object)new InheritanceBase { id = 21, values = { 7, 8 }, flag = 9 }));
+            copy.values[0] = -1;
+            Equal(7, original.values[0]);
+            var constructed = new InheritanceDerived(21, new Sequence<int>([7, 8]), 9, 12, "derived", 2.5);
+            Equal(original, constructed);
+        });
         Run("CDR.big-endian-fixture", () =>
         {
             byte[] data = [0, 0, 0, 0, 0, 0, 0, 42, 0, 0, 0, 2, (byte)'x', 0, 0, 0, 0, 0, 0, 7];

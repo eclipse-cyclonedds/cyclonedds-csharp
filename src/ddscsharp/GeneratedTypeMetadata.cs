@@ -46,6 +46,12 @@ public sealed class NativeLayout
         }
         return new(Align(size, alignment), alignment, offsets);
     }
+    /// <summary>Layout of a padded base struct followed by locally declared members.</summary>
+    public static NativeLayout Derived(NativeLayout parent, params NativeLayout[] members)
+    {
+        var storage = Struct([parent, .. members]);
+        return new(storage.Size, storage.Alignment, [.. parent.Offsets, .. storage.Offsets.Skip(1)]);
+    }
     public static NativeLayout Union(NativeLayout discriminator, params NativeLayout[] branches)
     {
         var alignment = branches.Max(b => b.Alignment);
