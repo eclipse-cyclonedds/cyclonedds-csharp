@@ -17,6 +17,9 @@ SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
     <RootNamespace>$(PackageId)</RootNamespace>
     <Title>Eclipse Cyclone DDS for C#</Title>
     <Authors>Cyclone DDS C# contributors</Authors>
+    <RepositoryUrl>https://github.com/eclipse-cyclonedds/cyclonedds-csharp</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageProjectUrl>https://cyclonedds.io/</PackageProjectUrl>
     <PackageTags>DDS;CycloneDDS;CSharp;publish-subscribe;RTPS</PackageTags>
     <PackageLicenseExpression>EPL-2.0 OR BSD-3-Clause</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
